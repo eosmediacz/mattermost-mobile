@@ -13,6 +13,8 @@ env.d.ts
 
 */**/compass-icons.ttf
 
+android/app/google-services.json
+
 # OSX
 #
 .DS_Store
