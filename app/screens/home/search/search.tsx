@@ -1,11 +1,12 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {useHardwareKeyboardEvents} from '@mattermost/hardware-keyboard';
 import {useIsFocused, useNavigation} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Freeze} from 'react-freeze';
 import {useIntl} from 'react-intl';
-import {FlatList, type LayoutChangeEvent, Platform, StyleSheet, type ViewStyle, KeyboardAvoidingView} from 'react-native';
-import HWKeyboardEvent from 'react-native-hw-keyboard-event';
+import {FlatList, type LayoutChangeEvent, Platform, type ViewStyle, KeyboardAvoidingView, Keyboard, StyleSheet} from 'react-native';
 import Animated, {useAnimatedStyle, useDerivedValue, withTiming, type AnimatedStyle} from 'react-native-reanimated';
 import {type Edge, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
@@ -13,7 +14,6 @@ import {getPosts} from '@actions/local/post';
 import {addSearchToTeamSearchHistory} from '@actions/local/team';
 import {searchPosts, searchFiles} from '@actions/remote/search';
 import Autocomplete from '@components/autocomplete';
-import FreezeScreen from '@components/freeze_screen';
 import Loading from '@components/loading';
 import NavigationHeader from '@components/navigation_header';
 import RoundedHeaderContext from '@components/rounded_header_context';
@@ -85,9 +85,9 @@ const SearchScreen = ({teamId, teams}: Props) => {
     const insets = useSafeAreaInsets();
     const keyboardHeight = useKeyboardHeight();
 
-    const stateIndex = nav.getState().index;
+    const stateIndex = nav.getState()?.index;
     const serverUrl = useServerUrl();
-    const searchTerm = (nav.getState().routes[stateIndex].params as any)?.searchTerm;
+    const searchTerm: string = stateIndex === undefined ? '' : (nav.getState()?.routes[stateIndex]?.params as any)?.searchTerm || '';
 
     const clearRef = useRef<boolean>(false);
     const cancelRef = useRef<boolean>(false);
@@ -114,21 +114,17 @@ const SearchScreen = ({teamId, teams}: Props) => {
         setSearchTeamId(teamId);
     }, [teamId]);
 
-    useEffect(() => {
-        if (searchTerm) {
-            resetToInitial();
-            setSearchValue(searchTerm);
-            handleSearch(searchTeamId, searchTerm);
-        }
-    }, [searchTerm]);
-
-    const onSnap = (offset: number, animated = true) => {
+    const onSnap = useCallback((offset: number, animated = true) => {
         scrollRef.current?.scrollToOffset({offset, animated});
-    };
+    }, []);
+
+    const onSnapWithTimeout = useCallback((offset: number, animated = true) => {
+        // wait until the keyboard is completely dismissed before scrolling to where the header should be
+        setTimeout(() => onSnap(offset, animated), 100);
+    }, [onSnap]);
 
     const {
         headerHeight,
-        headerOffset,
         hideHeader,
         lockValue,
         onScroll,
@@ -147,15 +143,21 @@ const SearchScreen = ({teamId, teams}: Props) => {
         setFilter(FileFilters.ALL);
     }, []);
 
+    const clearInputs = useCallback(() => {
+        setSearchValue('');
+        setLastSearchedValue('');
+        setFilter(FileFilters.ALL);
+    }, []);
+
     const handleClearSearch = useCallback(() => {
         clearRef.current = true;
+        Keyboard.dismiss();
         resetToInitial();
     }, [resetToInitial]);
 
     const handleCancelSearch = useCallback(() => {
         cancelRef.current = true;
         resetToInitial();
-        onSnap(0);
     }, [resetToInitial]);
 
     const handleTextChange = useCallback((newValue: string) => {
@@ -199,11 +201,14 @@ const SearchScreen = ({teamId, teams}: Props) => {
         setFileChannelIds(channels?.length ? channels : emptyChannelIds);
         handleLoading(false);
         setShowResults(true);
-    }, [filter, handleClearSearch, handleLoading]);
+    }, [filter, handleClearSearch, handleLoading, hideHeader, serverUrl]);
 
     const onBlur = useCallback(() => {
         setSearchIsFocused(false);
-    }, []);
+        if (!cancelRef.current && !clearRef.current) {
+            onSnapWithTimeout(0);
+        }
+    }, [onSnapWithTimeout]);
 
     const onFocus = useCallback(() => {
         setSearchIsFocused(true);
@@ -226,7 +231,7 @@ const SearchScreen = ({teamId, teams}: Props) => {
         setFileInfos(files?.length ? files : emptyFileResults);
         setFileChannelIds(channels?.length ? channels : emptyChannelIds);
         setResultsLoading(false);
-    }, [lastSearchedValue, searchTeamId]);
+    }, [lastSearchedValue, searchTeamId, serverUrl]);
 
     const handleResultsTeamChange = useCallback((newTeamId: string) => {
         setSearchTeamId(newTeamId);
@@ -260,8 +265,11 @@ const SearchScreen = ({teamId, teams}: Props) => {
                 teams={teams}
             />
         );
-    }, [handleRecentSearch, handleTextChange, loading,
-        scrollPaddingTop, searchTeamId, searchValue, theme]);
+    }, [
+        handleModifierTextChange, handleRecentSearch,
+        loading, scrollEnabled, scrollPaddingTop, searchTeamId,
+        searchValue, styles.loading, teams, theme.buttonBg,
+    ]);
 
     const animated = useAnimatedStyle(() => {
         if (isFocused) {
@@ -275,12 +283,12 @@ const SearchScreen = ({teamId, teams}: Props) => {
         return {
             opacity: withTiming(0, {duration: 150}),
             flex: 1,
-            transform: [{translateX: withTiming(stateIndex < searchScreenIndex ? 25 : -25, {duration: 150})}],
+            transform: [{translateX: withTiming((stateIndex || 0) < searchScreenIndex ? 25 : -25, {duration: 150})}],
         };
     }, [isFocused, stateIndex]);
 
     const headerTopStyle = useAnimatedStyle(() => ({
-        top: lockValue.value ? lockValue.value : headerHeight.value,
+        top: lockValue || headerHeight.value,
         zIndex: lastSearchedValue ? 10 : 0,
     }), [headerHeight, lastSearchedValue, lockValue]);
 
@@ -303,15 +311,23 @@ const SearchScreen = ({teamId, teams}: Props) => {
     const onFlatLayout = useCallback(() => {
         if (clearRef.current || cancelRef.current) {
             unlock();
+            onSnapWithTimeout(0);
         }
+
         if (clearRef.current) {
-            onSnap(headerOffset, false);
             clearRef.current = false;
         } else if (cancelRef.current) {
-            onSnap(0);
             cancelRef.current = false;
         }
-    }, [headerOffset, scrollRef]);
+    }, [unlock, onSnapWithTimeout]);
+
+    useEffect(() => {
+        if (searchTerm) {
+            clearInputs();
+            setSearchValue(searchTerm);
+            handleSearch(searchTeamId, searchTerm);
+        }
+    }, [handleSearch, clearInputs, searchTeamId, searchTerm]);
 
     useDidUpdate(() => {
         if (isFocused) {
@@ -323,46 +339,44 @@ const SearchScreen = ({teamId, teams}: Props) => {
         }
     }, [isFocused]);
 
-    useEffect(() => {
-        const listener = HWKeyboardEvent.onHWKeyPressed((keyEvent: {pressedKey: string}) => {
-            const topScreen = NavigationStore.getVisibleScreen();
-            if (topScreen === Screens.HOME && isFocused && keyEvent.pressedKey === 'enter') {
-                searchRef.current?.blur();
-                onSubmit();
-            }
-        });
-        return () => {
-            listener.remove();
-        };
-    }, [onSubmit]);
+    const handleEnterPressed = useCallback(() => {
+        const topScreen = NavigationStore.getVisibleScreen();
+        if (topScreen === Screens.HOME && isFocused) {
+            searchRef.current?.blur();
+            onSubmit();
+        }
+    }, [isFocused, onSubmit]);
+
+    const events = useMemo(() => ({onEnterPressed: handleEnterPressed}), [handleEnterPressed]);
+    useHardwareKeyboardEvents(events);
 
     return (
-        <FreezeScreen freeze={!isFocused}>
-            <NavigationHeader
-                isLargeTitle={true}
-                showBackButton={false}
-                title={intl.formatMessage({id: 'screen.search.title', defaultMessage: 'Search'})}
-                hasSearch={true}
-                scrollValue={scrollValue}
-                lockValue={lockValue}
-                hideHeader={hideHeader}
-                onChangeText={handleTextChange}
-                onSubmitEditing={onSubmit}
-                blurOnSubmit={true}
-                placeholder={intl.formatMessage({id: 'screen.search.placeholder', defaultMessage: 'Search messages & files'})}
-                onBlur={onBlur}
-                onClear={handleClearSearch}
-                onCancel={handleCancelSearch}
-                onFocus={onFocus}
-                defaultValue={searchValue}
-                ref={searchRef}
-            />
+        <Freeze freeze={!isFocused}>
             <SafeAreaView
                 style={styles.flex}
                 edges={EDGES}
                 onLayout={onLayout}
                 testID='search_messages.screen'
             >
+                <NavigationHeader
+                    isLargeTitle={true}
+                    showBackButton={false}
+                    title={intl.formatMessage({id: 'screen.search.title', defaultMessage: 'Search'})}
+                    hasSearch={true}
+                    scrollValue={scrollValue}
+                    lockValue={lockValue}
+                    hideHeader={hideHeader}
+                    onChangeText={handleTextChange}
+                    onSubmitEditing={onSubmit}
+                    blurOnSubmit={true}
+                    placeholder={intl.formatMessage({id: 'screen.search.placeholder', defaultMessage: 'Search messages & files'})}
+                    onBlur={onBlur}
+                    onClear={handleClearSearch}
+                    onCancel={handleCancelSearch}
+                    onFocus={onFocus}
+                    defaultValue={searchValue}
+                    ref={searchRef}
+                />
                 <KeyboardAvoidingView
                     style={styles.flex}
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -408,7 +422,7 @@ const SearchScreen = ({teamId, teams}: Props) => {
                             posts={posts}
                             matches={matches}
                             fileInfos={fileInfos}
-                            scrollPaddingTop={lockValue.value}
+                            scrollPaddingTop={lockValue}
                             fileChannelIds={fileChannelIds}
                         />
                         }
@@ -429,7 +443,7 @@ const SearchScreen = ({teamId, teams}: Props) => {
                 teamId={searchTeamId}
             />
             }
-        </FreezeScreen>
+        </Freeze>
     );
 };
 

@@ -2,17 +2,23 @@
 // See LICENSE.txt for license information.
 
 import {makeCallsBaseAndBadgeRGB, rgbToCSS} from '@mattermost/calls';
+import {type CallsConfig, type CallPostProps, isCaption, type Caption, isCallJobMetadata, type CallJobMetadata} from '@mattermost/calls/lib/types';
 import {Alert} from 'react-native';
-import {TextTrackType} from 'react-native-video';
+import {SelectedTrackType, TextTrackType, type ISO639_1, type SelectedTrack, type TextTracks} from 'react-native-video';
 
 import {buildFileUrl} from '@actions/remote/file';
 import {Calls, Post} from '@constants';
 import {NOTIFICATION_SUB_TYPE} from '@constants/push_notification';
 import {isMinimumServerVersion} from '@utils/helpers';
+import {ensureNumber, ensureString, isArrayOf, isRecordOf, isStringArray} from '@utils/types';
 import {displayUsername} from '@utils/user';
 
-import type {CallSession, CallsTheme, CallsVersion, SelectedSubtitleTrack, SubtitleTrack} from '@calls/types/calls';
-import type {CallsConfig, Caption} from '@mattermost/calls/lib/types';
+import type {
+    CallsConfigState,
+    CallSession,
+    CallsTheme,
+    CallsVersion,
+} from '@calls/types/calls';
 import type PostModel from '@typings/database/models/servers/post';
 import type UserModel from '@typings/database/models/servers/user';
 import type {IntlShape} from 'react-intl';
@@ -97,6 +103,14 @@ export function isMultiSessionSupported(callsVersion: CallsVersion) {
         Calls.MultiSessionCallsVersion.MIN_VERSION,
         Calls.MultiSessionCallsVersion.PATCH_VERSION,
     );
+}
+
+export function isHostControlsAllowed(config: CallsConfigState) {
+    return Boolean(config.HostControlsAllowed);
+}
+
+export function areGroupCallsAllowed(config: CallsConfigState) {
+    return Boolean(config.GroupCallsAllowed);
 }
 
 export function isCallsCustomMessage(post: PostModel | Post): boolean {
@@ -204,32 +218,46 @@ export function isCallsStartedMessage(payload?: NotificationData) {
     return (payload?.message === 'You\'ve been invited to a call' || callsMessageRegex.test(payload?.message || ''));
 }
 
-export const hasCaptions = (postProps?: Record<string, any> & { captions?: Caption[] }): boolean => {
-    return !(!postProps || !postProps.captions?.[0]);
+export const hasCaptions = (postProps?: Record<string, unknown>): boolean => {
+    return Boolean(isArrayOf<Caption>(postProps?.captions, isCaption) && postProps.captions[0]);
 };
 
-export const getTranscriptionUri = (serverUrl: string, postProps?: Record<string, any> & { captions?: Caption[] }): {
-    tracks?: SubtitleTrack[];
-    selected: SelectedSubtitleTrack;
+export const getTranscriptionUri = (serverUrl: string, postProps?: Record<string, unknown>): {
+    tracks?: TextTracks;
+    selected: SelectedTrack;
 } => {
     // Note: We're not using hasCaptions above because this tells typescript that the caption exists later.
     // We could use some fancy typescript to do the same, but it's not worth the complexity.
-    if (!postProps || !postProps.captions?.[0]) {
+    if (!isArrayOf<Caption>(postProps?.captions, isCaption) || !postProps.captions[0]) {
         return {
             tracks: undefined,
-            selected: {type: 'disabled'},
+            selected: {type: SelectedTrackType.DISABLED, value: ''},
         };
     }
 
-    const tracks: SubtitleTrack[] = postProps.captions.map((t) => ({
+    const tracks: TextTracks = postProps.captions.map((t) => ({
         title: t.title,
-        language: t.language,
+        language: t.language as ISO639_1,
         type: TextTrackType.VTT,
         uri: buildFileUrl(serverUrl, t.file_id),
     }));
 
     return {
         tracks,
-        selected: {type: 'index', value: 0},
+        selected: {type: SelectedTrackType.INDEX, value: 0},
     };
 };
+
+export function getCallPropsFromPost(post: PostModel | Post): CallPostProps {
+    return {
+        title: ensureString(post.props?.title),
+        start_at: ensureNumber(post.props?.start_at),
+        end_at: ensureNumber(post.props?.end_at),
+        recordings: isRecordOf<CallJobMetadata>(post.props?.recordings, isCallJobMetadata) ? post.props.recordings : {},
+        transcriptions: isRecordOf<CallJobMetadata>(post.props?.transcriptions, isCallJobMetadata) ? post.props.transcriptions : {},
+        participants: isStringArray(post.props?.participants) ? post.props.participants : [],
+
+        // DEPRECATED
+        recording_files: isStringArray(post.props?.recording_files) ? post.props.recording_files : [],
+    };
+}

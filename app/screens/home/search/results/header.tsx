@@ -3,7 +3,6 @@
 import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
 import {View} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import Badge from '@components/badge';
 import CompassIcon from '@components/compass_icon';
@@ -36,9 +35,9 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         container: {
             marginTop: 10,
-            backgroundColor: theme.centerChannelBg,
             borderBottomWidth: 1,
             borderBottomColor: changeOpacity(theme.centerChannelColor, 0.1),
+            backgroundColor: theme.centerChannelBg,
         },
         badge: {
             backgroundColor: theme.buttonBg,
@@ -70,7 +69,6 @@ const Header = ({
     const theme = useTheme();
     const styles = getStyleFromTheme(theme);
     const intl = useIntl();
-    const {bottom} = useSafeAreaInsets();
     const isTablet = useIsTablet();
 
     const messagesText = intl.formatMessage({id: 'screen.search.header.messages', defaultMessage: 'Messages'});
@@ -94,10 +92,9 @@ const Header = ({
             bottomSheetSnapPoint(
                 NUMBER_FILTER_ITEMS,
                 FILTER_ITEM_HEIGHT,
-                bottom,
             ) + TITLE_HEIGHT + DIVIDERS_HEIGHT + (isTablet ? TITLE_SEPARATOR_MARGIN_TABLET : TITLE_SEPARATOR_MARGIN),
         ];
-    }, []);
+    }, [isTablet]);
 
     const handleFilterPress = useCallback(() => {
         const renderContent = () => {

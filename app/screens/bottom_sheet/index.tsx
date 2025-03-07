@@ -1,9 +1,11 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import BottomSheetM, {BottomSheetBackdrop, type BottomSheetBackdropProps, type BottomSheetFooterProps} from '@gorhom/bottom-sheet';
+import BottomSheetM, {BottomSheetBackdrop, BottomSheetView, type BottomSheetBackdropProps} from '@gorhom/bottom-sheet';
 import React, {type ReactNode, useCallback, useEffect, useMemo, useRef} from 'react';
 import {DeviceEventEmitter, type Handle, InteractionManager, Keyboard, type StyleProp, View, type ViewStyle} from 'react-native';
+import {ReduceMotion, type WithSpringConfig} from 'react-native-reanimated';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {Events} from '@constants';
 import {useTheme} from '@context/theme';
@@ -17,17 +19,18 @@ import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import Indicator from './indicator';
 
 import type {AvailableScreens} from '@typings/screens/navigation';
-import type {WithSpringConfig} from 'react-native-reanimated';
 
 export {default as BottomSheetButton, BUTTON_HEIGHT} from './button';
 export {default as BottomSheetContent, TITLE_HEIGHT} from './content';
+
+export const BOTTOM_SHEET_ANDROID_OFFSET = 12;
 
 type Props = {
     closeButtonId?: string;
     componentId: AvailableScreens;
     contentStyle?: StyleProp<ViewStyle>;
     initialSnapIndex?: number;
-    footerComponent?: React.FC<BottomSheetFooterProps>;
+    footerComponent?: React.FC<unknown>;
     renderContent: () => ReactNode;
     snapPoints?: Array<string | number>;
     testID?: string;
@@ -68,6 +71,9 @@ export const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
             borderTopWidth: 1,
             borderColor: changeOpacity(theme.centerChannelColor, 0.08),
         },
+        view: {
+            flex: 1,
+        },
     };
 });
 
@@ -78,6 +84,7 @@ export const animatedConfig: Omit<WithSpringConfig, 'velocity'> = {
     overshootClamping: true,
     restSpeedThreshold: 0.3,
     restDisplacementThreshold: 0.3,
+    reduceMotion: ReduceMotion.Never,
 };
 
 const BottomSheet = ({
@@ -92,6 +99,7 @@ const BottomSheet = ({
 }: Props) => {
     const sheetRef = useRef<BottomSheetM>(null);
     const isTablet = useIsTablet();
+    const insets = useSafeAreaInsets();
     const theme = useTheme();
     const styles = getStyleSheet(theme);
     const interaction = useRef<Handle>();
@@ -188,10 +196,12 @@ const BottomSheet = ({
     );
 
     if (isTablet) {
+        const FooterComponent = footerComponent;
         return (
             <>
                 <View style={styles.separator}/>
                 {renderContainerContent()}
+                {FooterComponent && (<FooterComponent/>)}
             </>
         );
     }
@@ -213,8 +223,12 @@ const BottomSheet = ({
             keyboardBehavior='extend'
             keyboardBlurBehavior='restore'
             onClose={close}
+            bottomInset={insets.bottom}
+            enableDynamicSizing={false}
         >
-            {renderContainerContent()}
+            <BottomSheetView style={styles.view}>
+                {renderContainerContent()}
+            </BottomSheetView>
         </BottomSheetM>
     );
 };

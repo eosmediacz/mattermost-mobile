@@ -14,7 +14,7 @@ import {doPing} from '@actions/remote/general';
 import {fetchConfigAndLicense} from '@actions/remote/systems';
 import LocalConfig from '@assets/config.json';
 import AppVersion from '@components/app_version';
-import {Screens, Launch} from '@constants';
+import {Screens, Launch, DeepLink} from '@constants';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
 import {t} from '@i18n';
 import {getServerCredentials} from '@init/credentials';
@@ -136,7 +136,7 @@ const Server = ({
             // If no other servers are allowed or the local config for AutoSelectServerUrl is set, attempt to connect
             handleConnect(managedConfig?.serverUrl || LocalConfig.DefaultServerUrl);
         }
-    }, [managedConfig?.allowOtherServers, managedConfig?.serverUrl, managedConfig?.serverName]);
+    }, [managedConfig?.allowOtherServers, managedConfig?.serverUrl, managedConfig?.serverName, defaultServerUrl]);
 
     useEffect(() => {
         if (url && displayName) {
@@ -208,6 +208,12 @@ const Server = ({
         if (redirectSSO) {
             // @ts-expect-error ssoType not in definition
             passProps.ssoType = enabledSSOs[0];
+        }
+
+        // if deeplink is of type server removing the deeplink info on new login
+        if (extra?.type === DeepLink.Server) {
+            passProps.extra = undefined;
+            passProps.launchType = Launch.Normal;
         }
 
         goToScreen(screen, '', passProps, loginAnimationOptions());
@@ -290,31 +296,34 @@ const Server = ({
             cancelPing = undefined;
         };
 
-        const serverUrl = await getServerUrlAfterRedirect(pingUrl, !retryWithHttp);
-        if (!serverUrl) {
+        const ping = await getServerUrlAfterRedirect(pingUrl, !retryWithHttp);
+        if (!ping.url) {
             cancelPing();
+            if (retryWithHttp) {
+                const nurl = pingUrl.replace('https:', 'http:');
+                pingServer(nurl, false);
+            } else {
+                setUrlError(getErrorMessage(ping.error, intl));
+                setButtonDisabled(true);
+                setConnecting(false);
+            }
             return;
         }
-        const result = await doPing(serverUrl, true, managedConfig?.timeout ? parseInt(managedConfig?.timeout, 10) : undefined);
+        const result = await doPing(ping.url, true, managedConfig?.timeout ? parseInt(managedConfig?.timeout, 10) : undefined);
 
         if (canceled) {
             return;
         }
 
         if (result.error) {
-            if (retryWithHttp) {
-                const nurl = serverUrl.replace('https:', 'http:');
-                pingServer(nurl, false);
-            } else {
-                setUrlError(getErrorMessage(result.error, intl));
-                setButtonDisabled(true);
-                setConnecting(false);
-            }
+            setUrlError(getErrorMessage(result.error, intl));
+            setButtonDisabled(true);
+            setConnecting(false);
             return;
         }
 
-        canReceiveNotifications(serverUrl, result.canReceiveNotifications as string, intl);
-        const data = await fetchConfigAndLicense(serverUrl, true);
+        canReceiveNotifications(ping.url, result.canReceiveNotifications as string, intl);
+        const data = await fetchConfigAndLicense(ping.url, true);
         if (data.error) {
             setButtonDisabled(true);
             setUrlError(getErrorMessage(data.error, intl));
@@ -332,7 +341,7 @@ const Server = ({
         }
 
         const server = await getServerByIdentifier(data.config.DiagnosticId);
-        const credentials = await getServerCredentials(serverUrl);
+        const credentials = await getServerCredentials(ping.url);
         setConnecting(false);
 
         if (server && server.lastActiveAt > 0 && credentials?.token) {
@@ -344,7 +353,7 @@ const Server = ({
             return;
         }
 
-        displayLogin(serverUrl, data.config!, data.license!);
+        displayLogin(ping.url, data.config!, data.license!);
     };
 
     const transform = useAnimatedStyle(() => {
@@ -367,7 +376,7 @@ const Server = ({
                 <KeyboardAwareScrollView
                     bounces={false}
                     contentContainerStyle={styles.scrollContainer}
-                    enableAutomaticScroll={Platform.OS === 'android'}
+                    enableAutomaticScroll={false}
                     enableOnAndroid={false}
                     enableResetScrollToCoords={true}
                     extraScrollHeight={20}
@@ -391,7 +400,6 @@ const Server = ({
                         handleConnect={handleConnect}
                         handleDisplayNameTextChanged={handleDisplayNameTextChanged}
                         handleUrlTextChanged={handleUrlTextChanged}
-                        isModal={isModal}
                         keyboardAwareRef={keyboardAwareRef}
                         theme={theme}
                         url={url}
