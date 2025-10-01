@@ -59,7 +59,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
         maxWidth: 315,
     },
     readOnly: {
-        backgroundColor: changeOpacity(theme.centerChannelBg, 0.16),
+        backgroundColor: changeOpacity(theme.centerChannelColor, 0.16),
     },
     smallLabel: {
         fontSize: 10,
@@ -139,6 +139,14 @@ const FloatingTextInput = forwardRef<FloatingTextInputRef, FloatingTextInputProp
 
     const positions = useMemo(() => getLabelPositions(styles.textInput, styles.label, styles.smallLabel), [styles]);
     const size = useMemo(() => [styles.textInput.fontSize, styles.smallLabel.fontSize], [styles]);
+    const shouldShowError = (!focused && error);
+
+    let color = styles.label.color;
+    if (shouldShowError) {
+        color = theme.errorTextColor;
+    } else if (focused) {
+        color = theme.buttonBg;
+    }
 
     useImperativeHandle(ref, () => ({
         blur: () => inputRef.current?.blur(),
@@ -175,7 +183,6 @@ const FloatingTextInput = forwardRef<FloatingTextInputRef, FloatingTextInputProp
         return focused ? null : inputRef?.current?.focus();
     }, [focused]);
 
-    const shouldShowError = (!focused && error);
     const onPressAction = !isKeyboardInput && editable && onPress ? onPress : undefined;
 
     const combinedContainerStyle = useMemo(() => {
@@ -217,6 +224,7 @@ const FloatingTextInput = forwardRef<FloatingTextInputRef, FloatingTextInputProp
         }
 
         return res;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [styles, theme, shouldShowError, focused, textInputStyle, focusedLabel, multiline, multilineInputHeight, editable]);
 
     const textAnimatedTextStyle = useAnimatedStyle(() => {
@@ -224,13 +232,6 @@ const FloatingTextInput = forwardRef<FloatingTextInputRef, FloatingTextInputProp
         const index = inputText || focusedLabel ? 1 : 0;
         const toValue = positions[index];
         const toSize = size[index];
-
-        let color = styles.label.color;
-        if (shouldShowError) {
-            color = theme.errorTextColor;
-        } else if (focused) {
-            color = theme.buttonBg;
-        }
 
         return {
             top: withTiming(toValue, {duration: 100, easing: Easing.linear}),
@@ -255,7 +256,7 @@ const FloatingTextInput = forwardRef<FloatingTextInputRef, FloatingTextInputProp
                 >
                     {label}
                 </Animated.Text>
-                <View style={combinedTextInputContainerStyle}>
+                <View style={combinedTextInputContainerStyle as StyleProp<ViewStyle>}>
                     <TextInput
                         {...props}
                         editable={isKeyboardInput && editable}

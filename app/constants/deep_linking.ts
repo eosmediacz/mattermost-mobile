@@ -7,8 +7,11 @@ const DeepLinkType = {
     GroupMessage: 'gm',
     Invalid: 'invalid',
     Permalink: 'permalink',
-    Plugin: 'plugin',
+    Playbooks: 'playbooks',
+    PlaybookRuns: 'playbook_runs',
+    PlaybookRunsRetrospective: 'playbook_runs_retrospective',
     Redirect: '_redirect',
+    Server: 'server',
 } as const;
 
 export default DeepLinkType;

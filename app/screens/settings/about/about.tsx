@@ -2,11 +2,12 @@
 // See LICENSE.txt for license information.
 
 import Clipboard from '@react-native-clipboard/clipboard';
-import React, {useCallback, useMemo} from 'react';
+import {applicationId, nativeApplicationVersion, nativeBuildVersion} from 'expo-application';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {useIntl} from 'react-intl';
-import {Alert, Text, View} from 'react-native';
-import DeviceInfo from 'react-native-device-info';
+import {Text, View} from 'react-native';
 
+import {getLicenseLoadMetric} from '@actions/remote/license';
 import Config from '@assets/config.json';
 import Button from '@components/button';
 import CompassIcon from '@components/compass_icon';
@@ -14,16 +15,17 @@ import FormattedText from '@components/formatted_text';
 import SettingContainer from '@components/settings/container';
 import AboutLinks from '@constants/about_links';
 import {SNACK_BAR_TYPE} from '@constants/snack_bar';
+import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
+import {usePreventDoubleTap} from '@hooks/utils';
 import {t} from '@i18n';
 import {popTopScreen} from '@screens/navigation';
-import {buttonBackgroundStyle, buttonTextStyle} from '@utils/buttonStyles';
 import {showSnackBar} from '@utils/snack_bar';
-import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 import {tryOpenURL} from '@utils/url';
+import {onOpenLinkError} from '@utils/url/links';
 
 import LearnMore from './learn_more';
 import Subtitle from './subtitle';
@@ -113,49 +115,56 @@ const getStyleSheet = makeStyleSheetFromTheme((theme) => {
 type AboutProps = {
     componentId: AvailableScreens;
     config: ClientConfig;
-    license: ClientLicense;
+    license?: ClientLicense;
 }
 const About = ({componentId, config, license}: AboutProps) => {
     const intl = useIntl();
     const theme = useTheme();
     const styles = getStyleSheet(theme);
+    const serverUrl = useServerUrl();
+    const [loadMetric, setLoadMetric] = useState<number | null>(null);
+
+    useEffect(() => {
+        const fetchLoadMetric = async () => {
+            const isLicensed = license?.IsLicensed === 'true';
+            const result = await getLicenseLoadMetric(serverUrl, config.Version, isLicensed);
+
+            // Only set the metric if we got a number back
+            if (result !== null && typeof result === 'number') {
+                setLoadMetric(result);
+            }
+        };
+
+        fetchLoadMetric();
+    }, [config.Version, license?.IsLicensed, serverUrl]);
 
     const openURL = useCallback((url: string) => {
         const onError = () => {
-            Alert.alert(
-                intl.formatMessage({
-                    id: 'settings.link.error.title',
-                    defaultMessage: 'Error',
-                }),
-                intl.formatMessage({
-                    id: 'settings.link.error.text',
-                    defaultMessage: 'Unable to open the link.',
-                }),
-            );
+            onOpenLinkError(intl);
         };
 
         tryOpenURL(url, onError);
-    }, []);
+    }, [intl]);
 
-    const handleAboutTeam = useCallback(preventDoubleTap(() => {
+    const handleAboutTeam = usePreventDoubleTap(useCallback(() => {
         return openURL(Config.WebsiteURL);
-    }), []);
+    }, [openURL]));
 
-    const handlePlatformNotice = useCallback(preventDoubleTap(() => {
+    const handlePlatformNotice = usePreventDoubleTap(useCallback(() => {
         return openURL(Config.ServerNoticeURL);
-    }), []);
+    }, [openURL]));
 
-    const handleMobileNotice = useCallback(preventDoubleTap(() => {
+    const handleMobileNotice = usePreventDoubleTap(useCallback(() => {
         return openURL(Config.MobileNoticeURL);
-    }), []);
+    }, [openURL]));
 
-    const handleTermsOfService = useCallback(preventDoubleTap(() => {
+    const handleTermsOfService = usePreventDoubleTap(useCallback(() => {
         return openURL(AboutLinks.TERMS_OF_SERVICE);
-    }), []);
+    }, [openURL]));
 
-    const handlePrivacyPolicy = useCallback(preventDoubleTap(() => {
+    const handlePrivacyPolicy = usePreventDoubleTap(useCallback(() => {
         return openURL(AboutLinks.PRIVACY_POLICY);
-    }), []);
+    }, [openURL]));
 
     const serverVersion = useMemo(() => {
         const buildNumber = config.BuildNumber;
@@ -176,17 +185,23 @@ const About = ({componentId, config, license}: AboutProps) => {
 
     const copyToClipboard = useCallback(
         () => {
-            const appVersion = intl.formatMessage({id: 'settings.about.app.version', defaultMessage: 'App Version: {version} (Build {number})'}, {version: DeviceInfo.getVersion(), number: DeviceInfo.getBuildNumber()});
+            const appVersion = intl.formatMessage({id: 'settings.about.app.version', defaultMessage: 'App Version: {version} (Build {number})'}, {version: nativeApplicationVersion, number: nativeBuildVersion});
             const buildNumber = config.BuildNumber;
             const version = config.Version;
             const server = buildNumber === version ? intl.formatMessage({id: 'settings.about.server.version.noBuild', defaultMessage: 'Server Version: {version}'}, {version}) : intl.formatMessage({id: 'settings.about.server.version', defaultMessage: 'Server Version: {version} (Build {buildNumber})'}, {version, buildNumber});
             const database = intl.formatMessage({id: 'settings.about.database', defaultMessage: 'Database: {driverName}'}, {driverName: config.SQLDriverName});
             const databaseSchemaVersion = intl.formatMessage({id: 'settings.about.database.schema', defaultMessage: 'Database Schema Version: {version}'}, {version: config.SchemaVersion});
-            const copiedString = `${appVersion}\n${server}\n${database}\n${databaseSchemaVersion}`;
+            let copiedString = `${appVersion}\n${server}\n${database}\n${databaseSchemaVersion}`;
+
+            if (loadMetric !== null) {
+                const loadMetricStr = intl.formatMessage({id: 'settings.about.license.load_metric', defaultMessage: 'Load Metric: {load}'}, {load: loadMetric});
+                copiedString += `\n${loadMetricStr}`;
+            }
+
             Clipboard.setString(copiedString);
             showSnackBar({barType: SNACK_BAR_TYPE.INFO_COPIED, sourceScreen: componentId});
         },
-        [intl, config],
+        [intl, config.BuildNumber, config.Version, config.SQLDriverName, config.SchemaVersion, loadMetric, componentId],
     );
 
     return (
@@ -221,7 +236,7 @@ const About = ({componentId, config, license}: AboutProps) => {
                         testID='about.app_version.value'
                     >
                         {intl.formatMessage({id: 'settings.about.app.version.value', defaultMessage: '{version} (Build {number})'},
-                            {version: DeviceInfo.getVersion(), number: DeviceInfo.getBuildNumber()})}
+                            {version: nativeApplicationVersion, number: nativeBuildVersion})}
                     </Text>
                 </View>
                 <View style={styles.group}>
@@ -238,6 +253,22 @@ const About = ({componentId, config, license}: AboutProps) => {
                         {serverVersion}
                     </Text>
                 </View>
+                {loadMetric !== null && (
+                    <View style={styles.group}>
+                        <Text
+                            style={styles.leftHeading}
+                            testID='about.license_load_metric.title'
+                        >
+                            {intl.formatMessage({id: 'settings.about.license.load_metric.title', defaultMessage: 'Load Metric:'})}
+                        </Text>
+                        <Text
+                            style={styles.rightHeading}
+                            testID='about.license_load_metric.value'
+                        >
+                            {loadMetric}
+                        </Text>
+                    </View>
+                )}
                 <View style={styles.group}>
                     <Text
                         style={styles.leftHeading}
@@ -266,18 +297,18 @@ const About = ({componentId, config, license}: AboutProps) => {
                         {config.SchemaVersion}
                     </Text>
                 </View>
-                <Button
-                    theme={theme}
-                    backgroundStyle={[buttonBackgroundStyle(theme, 'm', 'tertiary'), styles.copyInfoButtonContainer]}
-                    onPress={copyToClipboard}
-                    textStyle={buttonTextStyle(theme, 'm', 'tertiary', 'default')}
-                    text={intl.formatMessage({id: 'settings.about.button.copyInfo', defaultMessage: 'Copy info'})}
-                    testID={'about.copy_info'}
-                    iconName='content-copy'
-                    iconSize={15}
-                    buttonType={'default'}
-                />
-                {license.IsLicensed === 'true' && (
+                <View style={styles.copyInfoButtonContainer}>
+                    <Button
+                        theme={theme}
+                        onPress={copyToClipboard}
+                        text={intl.formatMessage({id: 'settings.about.button.copyInfo', defaultMessage: 'Copy info'})}
+                        testID={'about.copy_info'}
+                        iconName='content-copy'
+                        emphasis='tertiary'
+                        size='m'
+                    />
+                </View>
+                {license?.IsLicensed === 'true' && (
                     <View style={styles.licenseContainer}>
                         <FormattedText
                             defaultMessage='Licensed to: {company}'
@@ -292,7 +323,7 @@ const About = ({componentId, config, license}: AboutProps) => {
                     config={config}
                     onPress={handleAboutTeam}
                 />
-                {!MATTERMOST_BUNDLE_IDS.includes(DeviceInfo.getBundleId()) &&
+                {!MATTERMOST_BUNDLE_IDS.includes(applicationId || '') &&
                     <FormattedText
                         defaultMessage='{site} is powered by Mattermost'
                         id={t('settings.about.powered_by')}

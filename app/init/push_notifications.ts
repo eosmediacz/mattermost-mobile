@@ -1,6 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import RNUtils from '@mattermost/rnutils/src';
 import {AppState, DeviceEventEmitter, Platform, type EmitterSubscription} from 'react-native';
 import {
     Notification,
@@ -11,6 +12,7 @@ import {
     Notifications,
     type NotificationTextInput,
     type Registered,
+    type RegistrationError,
 } from 'react-native-notifications';
 import {requestNotifications} from 'react-native-permissions';
 
@@ -22,7 +24,6 @@ import {isCallsStartedMessage} from '@calls/utils';
 import {Device, Events, Navigation, PushNotification, Screens} from '@constants';
 import DatabaseManager from '@database/manager';
 import {DEFAULT_LOCALE, getLocalizedMessage, t} from '@i18n';
-import NativeNotifications from '@notifications';
 import {getServerDisplayName} from '@queries/app/servers';
 import {getCurrentChannelId} from '@queries/servers/system';
 import {getIsCRTEnabled, getThreadById} from '@queries/servers/thread';
@@ -31,10 +32,10 @@ import EphemeralStore from '@store/ephemeral_store';
 import NavigationStore from '@store/navigation_store';
 import {isBetaApp} from '@utils/general';
 import {isMainActivity, isTablet} from '@utils/helpers';
-import {logInfo} from '@utils/log';
+import {logDebug, logInfo} from '@utils/log';
 import {convertToNotificationData} from '@utils/notification';
 
-class PushNotifications {
+class PushNotificationsSingleton {
     configured = false;
     subscriptions?: EmitterSubscription[];
 
@@ -45,6 +46,8 @@ class PushNotifications {
             Notifications.events().registerRemoteNotificationsRegistered(this.onRemoteNotificationsRegistered),
             Notifications.events().registerNotificationReceivedBackground(this.onNotificationReceivedBackground),
             Notifications.events().registerNotificationReceivedForeground(this.onNotificationReceivedForeground),
+            Notifications.events().registerRemoteNotificationsRegistrationFailed(this.NotificationsRegistrationFailed),
+            Notifications.events().registerRemoteNotificationsRegistrationDenied(this.onRemoteNotificationsRegistrationDenied),
         ];
 
         if (register) {
@@ -232,6 +235,10 @@ class PushNotifications {
 
     // This triggers when the app was in the background (iOS)
     onNotificationReceivedBackground = async (incoming: Notification, completion: (response: NotificationBackgroundFetchResult) => void) => {
+        if (incoming.payload.verified === 'false') {
+            logDebug('not handling background notification because it was not verified, ackId=', incoming.payload.ackId);
+            return;
+        }
         const notification = convertToNotificationData(incoming, false);
         this.processNotification(notification);
 
@@ -241,13 +248,20 @@ class PushNotifications {
     // This triggers when the app was in the foreground (Android and iOS)
     // Also triggers when the app was in the background (Android)
     onNotificationReceivedForeground = (incoming: Notification, completion: (response: NotificationCompletion) => void) => {
+        if (incoming.payload.verified === 'false') {
+            logDebug('not handling foreground notification because it was not verified, ackId=', incoming.payload.ackId);
+            return;
+        }
         const notification = convertToNotificationData(incoming, false);
         if (AppState.currentState !== 'inactive') {
             notification.foreground = AppState.currentState === 'active' && isMainActivity();
 
             this.processNotification(notification);
         }
-        completion({alert: false, sound: true, badge: true});
+
+        // Always play a sound, except when this is a foreground notification about a call
+        const sound = !(notification.foreground && isCallsStartedMessage(notification.payload));
+        completion({alert: false, sound, badge: true});
     };
 
     onRemoteNotificationsRegistered = async (event: Registered) => {
@@ -265,7 +279,9 @@ class PushNotifications {
                 prefix = Device.PUSH_NOTIFY_ANDROID_REACT_NATIVE;
             }
 
-            storeDeviceToken(`${prefix}-v2:${deviceToken}`);
+            const token = `${prefix}-v2:${deviceToken}`;
+            storeDeviceToken(token);
+            logDebug('Notification token registered', token);
 
             // Store the device token in the default database
             this.requestNotificationReplyPermissions();
@@ -273,16 +289,24 @@ class PushNotifications {
         return null;
     };
 
+    onRemoteNotificationsRegistrationDenied = () => {
+        logDebug('Notification registration denied');
+    };
+
+    NotificationsRegistrationFailed = (event: RegistrationError) => {
+        logDebug('Notification registration failed', event);
+    };
+
     removeChannelNotifications = async (serverUrl: string, channelId: string) => {
-        NativeNotifications.removeChannelNotifications(serverUrl, channelId);
+        RNUtils.removeChannelNotifications(serverUrl, channelId);
     };
 
     removeServerNotifications = (serverUrl: string) => {
-        NativeNotifications.removeServerNotifications(serverUrl);
+        RNUtils.removeServerNotifications(serverUrl);
     };
 
     removeThreadNotifications = async (serverUrl: string, threadId: string) => {
-        NativeNotifications.removeThreadNotifications(serverUrl, threadId);
+        RNUtils.removeThreadNotifications(serverUrl, threadId);
     };
 
     requestNotificationReplyPermissions = () => {
@@ -309,4 +333,5 @@ class PushNotifications {
     };
 }
 
-export default new PushNotifications();
+const PushNotifications = new PushNotificationsSingleton();
+export default PushNotifications;

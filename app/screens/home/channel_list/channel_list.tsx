@@ -18,6 +18,7 @@ import {Navigation as NavigationConstants, Screens} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {useIsTablet} from '@hooks/device';
+import PerformanceMetricsManager from '@managers/performance_metrics_manager';
 import {resetToTeams, openToS} from '@screens/navigation';
 import NavigationStore from '@store/navigation_store';
 import {isMainActivity} from '@utils/helpers';
@@ -108,7 +109,7 @@ const ChannelListScreen = (props: ChannelProps) => {
             }
         }
         return false;
-    }, [intl]);
+    }, [intl, navigation]);
 
     const animated = useAnimatedStyle(() => {
         if (!isFocused) {
@@ -135,7 +136,7 @@ const ChannelListScreen = (props: ChannelProps) => {
         if (!props.hasTeams) {
             resetToTeams();
         }
-    }, [Boolean(props.hasTeams)]);
+    }, [props.hasTeams]);
 
     useEffect(() => {
         const back = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
@@ -169,6 +170,11 @@ const ChannelListScreen = (props: ChannelProps) => {
         }
     }, []);
 
+    useEffect(() => {
+        PerformanceMetricsManager.finishLoad('HOME', serverUrl);
+        PerformanceMetricsManager.measureTimeToInteraction();
+    }, []);
+
     return (
         <>
             <Animated.View style={top}/>
@@ -196,7 +202,7 @@ const ChannelListScreen = (props: ChannelProps) => {
                             moreThanOneTeam={props.hasMoreThanOneTeam}
                             hasChannels={props.hasChannels}
                         />
-                        {isTablet &&
+                        {isTablet && props.hasChannels &&
                             <AdditionalTabletView/>
                         }
                         {props.showIncomingCalls && !isTablet &&

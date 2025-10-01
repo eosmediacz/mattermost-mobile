@@ -11,8 +11,7 @@ const {ARTIFACTS_DIR} = require('./constants');
 
 const MAX_FAILED_TITLES = 5;
 
-function convertXmlToJson(xml) {
-    const platform = process.env.IOS === 'true' ? 'ios' : 'android';
+function convertXmlToJson(xml, platform) {
     const jsonFile = `${ARTIFACTS_DIR}/${platform}-junit.json`;
 
     // Convert XML to JSON
@@ -27,7 +26,6 @@ function convertXmlToJson(xml) {
         // Save JSON in a file
         fse.writeFileSync(jsonFile, json);
     });
-
     return readJsonFromFile(jsonFile);
 }
 
@@ -113,8 +111,8 @@ function generateStats(allTests) {
     const duration = allTests.duration;
     const start = allTests.start;
     const end = allTests.end;
-    const passes = tests - (failures + errors);
-    const passPercent = tests > 0 ? (passes / tests) * 100 : 0;
+    const passes = tests - (failures + errors + skipped);
+    const passPercent = tests > 0 ? ((passes / tests) * 100).toFixed(2) : 0;
 
     return {
         suites,
@@ -134,7 +132,7 @@ function generateStatsFieldValue(stats, failedFullTitles) {
     let statsFieldValue = `
 | Key | Value |
 |:---|:---|
-| Passing Rate | ${stats.passPercent.toFixed(2)}% |
+| Passing Rate | ${stats.passPercent}% |
 | Duration | ${(stats.duration / (60 * 1000)).toFixed(4)} mins |
 | Suites | ${stats.suites} |
 | Tests | ${stats.tests} |
@@ -281,7 +279,7 @@ function generateTestReport(summary, isUploadedToS3, reportLink, environment, te
         };
     }
 
-    let quickSummary = `${stats.passPercent.toFixed(2)}% (${stats.passes}/${stats.tests}) in ${stats.suites} suites`;
+    let quickSummary = `${stats.passPercent}% (${stats.passes}/${stats.tests}) in ${stats.suites} suites`;
     if (isUploadedToS3) {
         quickSummary = `[${quickSummary}](${reportLink})`;
     }
@@ -308,15 +306,15 @@ function generateTestReport(summary, isUploadedToS3, reportLink, environment, te
 function generateTitle() {
     const {
         BRANCH,
-        BUILD_AWS_S3_BUCKET,
-        BUILD_ID,
         COMMIT_HASH,
+        DETOX_AWS_S3_BUCKET,
         IOS,
         PULL_REQUEST,
         RELEASE_BUILD_NUMBER,
         RELEASE_DATE,
         RELEASE_VERSION,
         TYPE,
+        REPORT_PATH,
     } = process.env;
 
     const platform = IOS === 'true' ? 'iOS' : 'Android';
@@ -324,7 +322,7 @@ function generateTitle() {
     const appExtension = IOS === 'true' ? 'ipa' : 'apk';
     const appFileName = `Mattermost_Beta.${appExtension}`;
     const appBuildType = 'mattermost-mobile-beta';
-    const s3Folder = `${platform.toLocaleLowerCase()}/${BUILD_ID}-${COMMIT_HASH}-${BRANCH}`.replace(/\./g, '-');
+    const s3Folder = `${platform.toLocaleLowerCase()}/${REPORT_PATH}`;
     const appFilePath = IOS === 'true' ? 'Mattermost-simulator-x86_64.app.zip' : 'android/app/build/outputs/apk/release/app-release.apk';
     let buildLink = '';
     let releaseDate = '';
@@ -332,7 +330,7 @@ function generateTitle() {
 
     switch (TYPE) {
         case 'PR':
-            buildLink = ` with [${lane}:${COMMIT_HASH}](https://${BUILD_AWS_S3_BUCKET}.s3.amazonaws.com/${s3Folder}/${appFilePath})`;
+            buildLink = ` with [${lane}:${COMMIT_HASH}](https://${DETOX_AWS_S3_BUCKET}.s3.amazonaws.com/${s3Folder}/${appFilePath})`;
             title = `${platform} E2E for Pull Request Build: [${BRANCH}](${PULL_REQUEST})${buildLink}`;
             break;
         case 'RELEASE':

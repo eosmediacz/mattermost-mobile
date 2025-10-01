@@ -2,17 +2,18 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {ActivityIndicator, type StyleProp, View, type ViewStyle, Text, type TextStyle} from 'react-native';
+import {ActivityIndicator, type StyleProp, View, type ViewStyle, Text, type TextStyle, type ColorValue} from 'react-native';
 
 import {useTheme} from '@context/theme';
 
 type LoadingProps = {
     containerStyle?: StyleProp<ViewStyle>;
     size?: number | 'small' | 'large';
-    color?: string;
+    color?: ColorValue;
     themeColor?: keyof Theme;
     footerText?: string;
     footerTextStyles?: TextStyle;
+    testID?: string;
 }
 
 const Loading = ({
@@ -22,12 +23,16 @@ const Loading = ({
     themeColor,
     footerText,
     footerTextStyles,
+    testID,
 }: LoadingProps) => {
     const theme = useTheme();
     const indicatorColor = themeColor ? theme[themeColor] : color;
 
     return (
-        <View style={containerStyle}>
+        <View
+            style={containerStyle}
+            testID={testID}
+        >
             <ActivityIndicator
                 color={indicatorColor}
                 size={size}

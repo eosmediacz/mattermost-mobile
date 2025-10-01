@@ -17,17 +17,18 @@ import {
     ServerScreen,
     ChannelInfoScreen,
 } from '@support/ui/screen';
-import {getAdminAccount, getRandomId, timeouts} from '@support/utils';
+import {getAdminAccount, getRandomId, timeouts, wait} from '@support/utils';
 import {expect} from 'detox';
 
 describe('Channels - Unarchive Channel', () => {
     const serverOneDisplayName = 'Server 1';
-    const channelsCategory = 'channels';
 
     beforeAll(async () => {
+
         // # Log in to server as admin
         await ServerScreen.connectToServer(serverOneUrl, serverOneDisplayName);
-        await LoginScreen.login(getAdminAccount());
+        await LoginScreen.loginAsAdmin(getAdminAccount());
+        await wait(timeouts.TWO_SEC);
     });
 
     beforeEach(async () => {
@@ -43,10 +44,12 @@ describe('Channels - Unarchive Channel', () => {
     it('MM-T4944_1 - should be able to unarchive a public channel and confirm', async () => {
         // # Create a public channel screen, open channel info screen, and tap on archive channel option and confirm
         const channelDisplayName = `Channel ${getRandomId()}`;
-        const channelName = channelDisplayName.replace(/ /, '-').toLowerCase();
         await CreateOrEditChannelScreen.openCreateChannel();
         await CreateOrEditChannelScreen.displayNameInput.replaceText(channelDisplayName);
         await CreateOrEditChannelScreen.createButton.tap();
+        await wait(timeouts.TWO_SEC);
+        await expect(ChannelScreen.scheduledPostTooltipCloseButtonAdminAccount).toBeVisible();
+        await ChannelScreen.scheduledPostTooltipCloseButtonAdminAccount.tap();
         await ChannelInfoScreen.open();
         await ChannelInfoScreen.archivePublicChannel({confirm: true});
 
@@ -57,8 +60,6 @@ describe('Channels - Unarchive Channel', () => {
         // # Open channel info screen, tap on unarchive channel and confirm, close and re-open app to reload, and re-open unarchived public channel
         await ChannelInfoScreen.open();
         await ChannelInfoScreen.unarchivePublicChannel({confirm: true});
-        await device.reloadReactNative();
-        await ChannelScreen.open(channelsCategory, channelName);
 
         // * Verify on unarchived public channel screen and active post draft is displayed
         await ChannelScreen.toBeVisible();
@@ -71,7 +72,6 @@ describe('Channels - Unarchive Channel', () => {
     it('MM-T4944_2 - should be able to unarchive a private channel and confirm', async () => {
         // # Create a private channel screen, open channel info screen, and tap on archive channel option and confirm
         const channelDisplayName = `Channel ${getRandomId()}`;
-        const channelName = channelDisplayName.replace(/ /, '-').toLowerCase();
         await CreateOrEditChannelScreen.openCreateChannel();
         await CreateOrEditChannelScreen.toggleMakePrivateOn();
         await CreateOrEditChannelScreen.displayNameInput.replaceText(channelDisplayName);
@@ -86,8 +86,6 @@ describe('Channels - Unarchive Channel', () => {
         // # Open channel info screen, tap on unarchive channel and confirm, close and re-open app to reload, and re-open unarchived private channel
         await ChannelInfoScreen.open();
         await ChannelInfoScreen.unarchivePrivateChannel({confirm: true});
-        await device.reloadReactNative();
-        await ChannelScreen.open(channelsCategory, channelName);
 
         // * Verify on unarchived private channel screen and active post draft is displayed
         await ChannelScreen.toBeVisible();

@@ -1,8 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {Button} from '@rneui/base';
 import React, {useCallback} from 'react';
-import Button from 'react-native-button';
 import {type Edge, SafeAreaView} from 'react-native-safe-area-context';
 
 import {switchToPenultimateChannel} from '@actions/remote/channel';
@@ -16,9 +16,12 @@ import {popToRoot} from '@screens/navigation';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
+import type {AvailableScreens} from '@typings/screens/navigation';
+
 type Props = {
     testID?: string;
     deactivated?: boolean;
+    location: AvailableScreens;
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme) => ({
@@ -46,7 +49,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme) => ({
         height: 40,
     },
     closeButtonText: {
-        marginTop: 7,
+        marginTop: 1,
         color: 'white',
         fontWeight: 'bold',
     },
@@ -57,6 +60,7 @@ const edges: Edge[] = ['bottom'];
 export default function Archived({
     testID,
     deactivated,
+    location,
 }: Props) {
     const theme = useTheme();
     const style = getStyleSheet(theme);
@@ -94,10 +98,10 @@ export default function Archived({
                 {...message}
                 style={style.archivedText}
                 baseTextStyle={style.baseTextStyle}
-                location=''
+                location={location}
             />
             <Button
-                containerStyle={style.closeButton}
+                buttonStyle={style.closeButton}
                 onPress={onCloseChannelPress}
                 testID={`${testID}.close_channel.button`}
             >

@@ -4,6 +4,7 @@
 import React from 'react';
 import {View} from 'react-native';
 
+import FormattedText from '@components/formatted_text';
 import FormattedTime from '@components/formatted_time';
 import PostPriorityLabel from '@components/post_priority/post_priority_label';
 import {CHANNEL, THREAD} from '@constants/screens';
@@ -11,6 +12,7 @@ import {useTheme} from '@context/theme';
 import {DEFAULT_LOCALE} from '@i18n';
 import {postUserDisplayName} from '@utils/post';
 import {makeStyleSheetFromTheme} from '@utils/theme';
+import {ensureString} from '@utils/types';
 import {typography} from '@utils/typography';
 import {displayUsername, getUserCustomStatus, getUserTimezone, isCustomStatusExpired} from '@utils/user';
 
@@ -21,6 +23,7 @@ import HeaderTag from './tag';
 
 import type PostModel from '@typings/database/models/servers/post';
 import type UserModel from '@typings/database/models/servers/user';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 type HeaderProps = {
     author?: UserModel;
@@ -34,9 +37,8 @@ type HeaderProps = {
     isMilitaryTime: boolean;
     isPendingOrFailed: boolean;
     isSystemPost: boolean;
-    isTimezoneEnabled: boolean;
     isWebHook: boolean;
-    location: string;
+    location: AvailableScreens;
     post: PostModel;
     rootPostAuthor?: UserModel;
     showPostPriority: boolean;
@@ -57,16 +59,18 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         wrapper: {
             flex: 1,
             flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
         },
         time: {
             color: theme.centerChannelColor,
-            marginTop: 5,
             opacity: 0.5,
             ...typography('Body', 75, 'Regular'),
         },
-        postPriority: {
-            alignSelf: 'center',
-            marginLeft: 6,
+        visibleToYou: {
+            color: theme.centerChannelColor,
+            opacity: 0.5,
+            ...typography('Body', 75, 'Regular'),
         },
     };
 });
@@ -74,7 +78,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 const Header = (props: HeaderProps) => {
     const {
         author, commentCount = 0, currentUser, enablePostUsernameOverride, isAutoResponse, isCRTEnabled, isCustomStatusEnabled,
-        isEphemeral, isMilitaryTime, isPendingOrFailed, isSystemPost, isTimezoneEnabled, isWebHook,
+        isEphemeral, isMilitaryTime, isPendingOrFailed, isSystemPost, isWebHook,
         location, post, rootPostAuthor, showPostPriority, shouldRenderReplyButton, teammateNameDisplay, hideGuestTags,
     } = props;
     const theme = useTheme();
@@ -89,6 +93,8 @@ const Header = (props: HeaderProps) => {
         isCustomStatusEnabled && displayName && customStatus &&
         !(isSystemPost || author?.isBot || isAutoResponse || isWebHook),
     ) && !isCustomStatusExpired(author) && Boolean(customStatus?.emoji);
+    const userIconOverride = ensureString(post.props?.override_icon_url);
+    const usernameOverride = ensureString(post.props?.override_username);
 
     return (
         <>
@@ -102,9 +108,9 @@ const Header = (props: HeaderProps) => {
                         rootPostAuthor={rootAuthorDisplayName}
                         shouldRenderReplyButton={shouldRenderReplyButton}
                         theme={theme}
-                        userIconOverride={post.props?.override_icon_url}
+                        userIconOverride={userIconOverride}
                         userId={post.userId}
-                        usernameOverride={post.props?.override_username}
+                        usernameOverride={usernameOverride}
                         showCustomStatusEmoji={showCustomStatusEmoji}
                         customStatus={customStatus!}
                     />
@@ -116,18 +122,24 @@ const Header = (props: HeaderProps) => {
                     />
                     }
                     <FormattedTime
-                        timezone={isTimezoneEnabled ? getUserTimezone(currentUser) : ''}
+                        timezone={getUserTimezone(currentUser)}
                         isMilitaryTime={isMilitaryTime}
                         value={post.createAt}
                         style={style.time}
                         testID='post_header.date_time'
                     />
+                    {isEphemeral && (
+                        <FormattedText
+                            id='post_header.visible_message'
+                            defaultMessage='(Only visible to you)'
+                            style={style.visibleToYou}
+                            testID='post_header.visible_message'
+                        />
+                    )}
                     {showPostPriority && post.metadata?.priority?.priority && (
-                        <View style={style.postPriority}>
-                            <PostPriorityLabel
-                                label={post.metadata.priority.priority}
-                            />
-                        </View>
+                        <PostPriorityLabel
+                            label={post.metadata.priority.priority}
+                        />
                     )}
                     {!isCRTEnabled && showReply && commentCount > 0 &&
                         <HeaderReply

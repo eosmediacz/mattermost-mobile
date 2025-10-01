@@ -3,7 +3,7 @@
 
 import React, {useMemo} from 'react';
 import {type StyleProp, Text, type TextStyle, useWindowDimensions, View, type ViewStyle} from 'react-native';
-import Animated, {type AnimatedStyleProp} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 
 import CompassIcon from '@components/compass_icon';
 import {useTheme} from '@context/theme';
@@ -12,12 +12,13 @@ import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
 type ToastProps = {
-    animatedStyle: AnimatedStyleProp<ViewStyle>;
+    animatedStyle: StyleProp<ViewStyle>;
     children?: React.ReactNode;
     iconName?: string;
     message?: string;
     style?: StyleProp<ViewStyle>;
     textStyle?: StyleProp<TextStyle>;
+    testID?: string;
 }
 
 export const TOAST_HEIGHT = 56;
@@ -52,7 +53,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     },
 }));
 
-const Toast = ({animatedStyle, children, style, iconName, message, textStyle}: ToastProps) => {
+const Toast = ({animatedStyle, children, style, iconName, message, textStyle, testID}: ToastProps) => {
     const theme = useTheme();
     const styles = getStyleSheet(theme);
     const dim = useWindowDimensions();
@@ -64,7 +65,10 @@ const Toast = ({animatedStyle, children, style, iconName, message, textStyle}: T
     }, [dim, styles.container, style]);
 
     return (
-        <Animated.View style={[styles.center, animatedStyle]}>
+        <Animated.View
+            style={[styles.center, animatedStyle]}
+            testID={testID}
+        >
             <Animated.View style={containerStyle}>
                 {Boolean(iconName) &&
                 <CompassIcon

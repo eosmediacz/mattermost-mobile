@@ -1,22 +1,28 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import type {ApiResp, CallsVersion} from '@calls/types/calls';
-import type {CallChannelState, CallRecordingState, CallsConfig} from '@mattermost/calls/lib/types';
+import type {ApiResp} from '@calls/types/calls';
+import type {CallChannelState, CallJobState, CallsConfig, CallsVersionInfo} from '@mattermost/calls/lib/types';
 import type {RTCIceServer} from 'react-native-webrtc';
 
 export interface ClientCallsMix {
     getEnabled: () => Promise<Boolean>;
-    getCalls: () => Promise<CallChannelState[]>;
+    getCalls: (groupLabel?: RequestGroupLabel) => Promise<CallChannelState[]>;
     getCallForChannel: (channelId: string) => Promise<CallChannelState>;
-    getCallsConfig: () => Promise<CallsConfig>;
-    getVersion: () => Promise<CallsVersion>;
+    getCallsConfig: (groupLabel?: RequestGroupLabel) => Promise<CallsConfig>;
+    getVersion: (groupLabel?: RequestGroupLabel) => Promise<CallsVersionInfo>;
     enableChannelCalls: (channelId: string, enable: boolean) => Promise<CallChannelState>;
     endCall: (channelId: string) => Promise<ApiResp>;
     genTURNCredentials: () => Promise<RTCIceServer[]>;
-    startCallRecording: (callId: string) => Promise<ApiResp | CallRecordingState>;
-    stopCallRecording: (callId: string) => Promise<ApiResp | CallRecordingState>;
+    startCallRecording: (callId: string) => Promise<ApiResp | CallJobState>;
+    stopCallRecording: (callId: string) => Promise<ApiResp | CallJobState>;
     dismissCall: (channelId: string) => Promise<ApiResp>;
+    hostMake: (callId: string, newHostId: string) => Promise<ApiResp>;
+    hostMute: (callId: string, sessionId: string) => Promise<ApiResp>;
+    hostMuteOthers: (callId: string) => Promise<ApiResp>;
+    hostScreenOff: (callId: string, sessionId: string) => Promise<ApiResp>;
+    hostLowerHand: (callId: string, sessionId: string) => Promise<ApiResp>;
+    hostRemove: (callId: string, sessionId: string) => Promise<ApiResp>;
 }
 
 const ClientCalls = (superclass: any) => class extends superclass {
@@ -32,10 +38,10 @@ const ClientCalls = (superclass: any) => class extends superclass {
         }
     };
 
-    getCalls = async () => {
+    getCalls = async (groupLabel?: RequestGroupLabel) => {
         return this.doFetch(
             `${this.getCallsRoute()}/channels?mobilev2=true`,
-            {method: 'get'},
+            {method: 'get', groupLabel},
         );
     };
 
@@ -46,18 +52,18 @@ const ClientCalls = (superclass: any) => class extends superclass {
         );
     };
 
-    getCallsConfig = async () => {
+    getCallsConfig = async (groupLabel?: RequestGroupLabel) => {
         return this.doFetch(
             `${this.getCallsRoute()}/config`,
-            {method: 'get'},
+            {method: 'get', groupLabel},
         ) as CallsConfig;
     };
 
-    getVersion = async () => {
+    getVersion = async (groupLabel?: RequestGroupLabel) => {
         try {
-            return this.doFetch(
+            return await this.doFetch(
                 `${this.getCallsRoute()}/version`,
-                {method: 'get'},
+                {method: 'get', groupLabel},
             );
         } catch (e) {
             return {};
@@ -103,6 +109,63 @@ const ClientCalls = (superclass: any) => class extends superclass {
         return this.doFetch(
             `${this.getCallsRoute()}/calls/${channelID}/dismiss-notification`,
             {method: 'post'},
+        );
+    };
+
+    hostMake = async (callId: string, newHostId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/make`,
+            {
+                method: 'post',
+                body: {new_host_id: newHostId},
+            },
+        );
+    };
+
+    hostMute = async (callId: string, sessionId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/mute`,
+            {
+                method: 'post',
+                body: {session_id: sessionId},
+            },
+        );
+    };
+
+    hostMuteOthers = async (callId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/mute-others`,
+            {method: 'post'},
+        );
+    };
+
+    hostScreenOff = async (callId: string, sessionId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/screen-off`,
+            {
+                method: 'post',
+                body: {session_id: sessionId},
+            },
+        );
+    };
+
+    hostLowerHand = async (callId: string, sessionId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/lower-hand`,
+            {
+                method: 'post',
+                body: {session_id: sessionId},
+            },
+        );
+    };
+
+    hostRemove = async (callId: string, sessionId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callId}/host/remove`,
+            {
+                method: 'post',
+                body: {session_id: sessionId},
+            },
         );
     };
 };

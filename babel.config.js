@@ -2,9 +2,9 @@
 // See LICENSE.txt for license information.
 module.exports = {
     presets: [
-        'module:metro-react-native-babel-preset',
-        '@babel/preset-typescript',
         ['@babel/preset-env', {targets: {node: 'current'}}],
+        'module:@react-native/babel-preset',
+        '@babel/preset-typescript',
     ],
     plugins: [
         '@babel/plugin-transform-runtime',
@@ -15,7 +15,6 @@ module.exports = {
             root: ['.'],
             alias: {
                 '@actions': './app/actions',
-                '@app': './app/',
                 '@assets': './dist/assets/',
                 '@calls': './app/products/calls',
                 '@client': './app/client',
@@ -28,7 +27,7 @@ module.exports = {
                 '@i18n': './app/i18n',
                 '@init': './app/init',
                 '@managers': './app/managers',
-                '@notifications': './app/notifications',
+                '@playbooks': './app/products/playbooks',
                 '@queries': './app/queries',
                 '@screens': './app/screens',
                 '@share': './share_extension',
@@ -41,7 +40,7 @@ module.exports = {
             },
         }],
         ['module:react-native-dotenv', {
-            moduleName: 'react-native-dotenv',
+            moduleName: '@env',
             path: '.env',
             blacklist: null,
             whitelist: null,

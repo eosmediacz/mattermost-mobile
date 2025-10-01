@@ -24,12 +24,12 @@ const styles = StyleSheet.create({
 type Props = {
     canDownloadFiles: boolean;
     channelName?: string;
+    enableSecureFilePreview: boolean;
     fileInfo: FileInfo;
     index: number;
     numOptions: number;
     onOptionsPress: (finfo: FileInfo) => void;
     onPress: (idx: number) => void;
-    publicLinkEnabled: boolean;
     setAction: (action: GalleryAction) => void;
     updateFileForGallery: (idx: number, file: FileInfo) => void;
 }
@@ -39,12 +39,12 @@ const galleryIdentifier = 'search-files-location';
 const FileResult = ({
     canDownloadFiles,
     channelName,
+    enableSecureFilePreview,
     fileInfo,
     index,
     numOptions,
     onOptionsPress,
     onPress,
-    publicLinkEnabled,
     setAction,
     updateFileForGallery,
 }: Props) => {
@@ -57,19 +57,13 @@ const FileResult = ({
     const [xyOffset, setXYoffset] = useState<XyOffset>(undefined);
     const {height} = Dimensions.get('window');
 
-    const fileRef = useCallback((element: View) => {
-        if (showOptions) {
-            elementsRef.current = element;
-            elementsRef?.current?.measureInWindow((x, y) => {
-                setOpenUp((y > height / 2));
-                setXYoffset({x, y});
-            });
-        }
-    }, [elementsRef, showOptions]);
-
     const handleOptionsPress = useCallback((fInfo: FileInfo) => {
-        setShowOptions(true);
-        onOptionsPress(fInfo);
+        elementsRef.current?.measureInWindow((x, y) => {
+            setOpenUp((y > height / 2));
+            setXYoffset({x, y});
+            setShowOptions(true);
+            onOptionsPress(fInfo);
+        });
     }, []);
 
     const handleSetAction = useCallback((action: GalleryAction) => {
@@ -82,12 +76,14 @@ const FileResult = ({
     return (
         <>
             <View
-                ref={fileRef}
+                ref={elementsRef}
                 style={styles.container}
+                collapsable={false}
             >
                 <File
                     asCard={true}
                     canDownloadFiles={canDownloadFiles}
+                    enableSecureFilePreview={enableSecureFilePreview}
                     channelName={channelName}
                     file={fileInfo}
                     galleryIdentifier={galleryIdentifier}
@@ -97,7 +93,6 @@ const FileResult = ({
                     onOptionsPress={handleOptionsPress}
                     onPress={onPress}
                     optionSelected={isTablet && showOptions}
-                    publicLinkEnabled={publicLinkEnabled}
                     showDate={true}
                     updateFileForGallery={updateFileForGallery}
                     wrapperWidth={(getViewPortWidth(isReplyPost, isTablet) - 6)}

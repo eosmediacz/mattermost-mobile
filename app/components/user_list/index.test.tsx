@@ -1,14 +1,29 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React from 'react';
+import React, {type ComponentProps} from 'react';
+import {Image} from 'react-native';
 
+import {Screens} from '@constants';
+import {Ringtone} from '@constants/calls';
 import {renderWithEverything} from '@test/intl-test-helper';
 import TestHelper from '@test/test_helper';
 
 import UserList from '.';
 
 import type Database from '@nozbe/watermelondb/Database';
+
+const mockClient = TestHelper.createClient();
+
+jest.mock('@managers/network_manager', () => {
+    const original = jest.requireActual('@managers/network_manager');
+    return {
+        ...original,
+        getClient: () => {
+            return mockClient;
+        },
+    };
+});
 
 describe('components/channel_list_row', () => {
     let database: Database;
@@ -26,6 +41,7 @@ describe('components/channel_list_row', () => {
         position: '',
         roles: '',
         locale: '',
+        last_picture_update: 123456,
         notify_props: {
             channel: 'true',
             comments: 'never',
@@ -37,6 +53,10 @@ describe('components/channel_list_row', () => {
             highlight_keys: '',
             push: 'mention',
             push_status: 'away',
+            calls_desktop_sound: 'true',
+            calls_mobile_sound: '',
+            calls_notification_sound: Ringtone.Calm,
+            calls_mobile_notification_sound: '',
         },
     };
 
@@ -54,6 +74,7 @@ describe('components/channel_list_row', () => {
         position: '',
         roles: '',
         locale: '',
+        last_picture_update: 123456,
         notify_props: {
             channel: 'true',
             comments: 'never',
@@ -65,31 +86,49 @@ describe('components/channel_list_row', () => {
             highlight_keys: '',
             push: 'mention',
             push_status: 'away',
+            calls_desktop_sound: 'true',
+            calls_mobile_sound: '',
+            calls_notification_sound: Ringtone.Calm,
+            calls_mobile_notification_sound: '',
         },
     };
+
+    const originalResolveAssetSource = Image.resolveAssetSource;
 
     beforeAll(async () => {
         const server = await TestHelper.setupServerDatabase();
         database = server.database;
+
+        // This is needed to properly populate the URLs until
+        // https://github.com/facebook/react-native/pull/43497
+        // gets into React Native Jest code.
+        Image.resolveAssetSource = jest.fn().mockImplementation((source) => source);
     });
 
+    afterAll(() => {
+        Image.resolveAssetSource = originalResolveAssetSource;
+    });
+
+    function getBaseProps(): ComponentProps<typeof UserList> {
+        return {
+            profiles: [],
+            testID: 'UserListRow',
+            currentUserId: '1',
+            handleSelectProfile: jest.fn(),
+            fetchMore: jest.fn(),
+            loading: true,
+            selectedIds: {},
+            showNoResults: true,
+            tutorialWatched: true,
+            term: 'some term',
+            location: Screens.CHANNEL,
+        };
+    }
+
     it('should show no results', () => {
+        const props = getBaseProps();
         const wrapper = renderWithEverything(
-            <UserList
-                profiles={[user]}
-                testID='UserListRow'
-                currentUserId={'1'}
-                handleSelectProfile={() => {
-                    // noop
-                }}
-                fetchMore={() => {
-                    // noop
-                }}
-                loading={true}
-                selectedIds={{}}
-                showNoResults={true}
-                tutorialWatched={true}
-            />,
+            <UserList {...props}/>,
             {database},
         );
 
@@ -97,22 +136,12 @@ describe('components/channel_list_row', () => {
     });
 
     it('should show results no tutorial', () => {
+        const props = getBaseProps();
+        props.profiles = [user];
+        props.term = '';
+
         const wrapper = renderWithEverything(
-            <UserList
-                profiles={[user]}
-                testID='UserListRow'
-                currentUserId={'1'}
-                handleSelectProfile={() => {
-                    // noop
-                }}
-                fetchMore={() => {
-                    // noop
-                }}
-                loading={true}
-                selectedIds={{}}
-                showNoResults={true}
-                tutorialWatched={true}
-            />,
+            <UserList {...props}/>,
             {database},
         );
 
@@ -120,22 +149,11 @@ describe('components/channel_list_row', () => {
     });
 
     it('should show results no tutorial 2 users', () => {
+        const props = getBaseProps();
+        props.profiles = [user, user2];
+        props.term = '';
         const wrapper = renderWithEverything(
-            <UserList
-                profiles={[user, user2]}
-                testID='UserListRow'
-                currentUserId={'1'}
-                handleSelectProfile={() => {
-                    // noop
-                }}
-                fetchMore={() => {
-                    // noop
-                }}
-                loading={true}
-                selectedIds={{}}
-                showNoResults={true}
-                tutorialWatched={true}
-            />,
+            <UserList {...props}/>,
             {database},
         );
 
@@ -143,22 +161,13 @@ describe('components/channel_list_row', () => {
     });
 
     it('should show results and tutorial', () => {
+        const props = getBaseProps();
+        props.profiles = [user];
+        props.showNoResults = false;
+        props.tutorialWatched = false;
+        props.term = '';
         const wrapper = renderWithEverything(
-            <UserList
-                profiles={[user]}
-                testID='UserListRow'
-                currentUserId={'1'}
-                handleSelectProfile={() => {
-                    // noop
-                }}
-                fetchMore={() => {
-                    // noop
-                }}
-                loading={true}
-                selectedIds={{}}
-                showNoResults={false}
-                tutorialWatched={false}
-            />,
+            <UserList {...props}/>,
             {database},
         );
 

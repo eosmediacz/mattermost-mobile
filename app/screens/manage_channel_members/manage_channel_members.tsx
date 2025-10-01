@@ -10,12 +10,15 @@ import {fetchChannelMemberships} from '@actions/remote/channel';
 import {fetchUsersByIds, searchProfiles} from '@actions/remote/user';
 import {PER_PAGE_DEFAULT} from '@client/rest/constants';
 import Search from '@components/search';
+import SectionNotice from '@components/section_notice';
 import UserList from '@components/user_list';
 import {Events, General, Screens} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
+import {useAccessControlAttributes} from '@hooks/access_control_attributes';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import SecurityManager from '@managers/security_manager';
 import {openAsBottomSheet, popTopScreen, setButtons} from '@screens/navigation';
 import NavigationStore from '@store/navigation_store';
 import {showRemoveChannelUserSnackbar} from '@utils/snack_bar';
@@ -32,6 +35,7 @@ type Props = {
     currentUserId: string;
     tutorialWatched: boolean;
     teammateDisplayNameSetting: string;
+    channelAbacPolicyEnforced: boolean;
 }
 
 const styles = StyleSheet.create({
@@ -42,6 +46,10 @@ const styles = StyleSheet.create({
         marginLeft: 12,
         marginRight: Platform.select({ios: 4, default: 12}),
         marginVertical: 12,
+    },
+    flatBottomBanner: {
+        borderBottomLeftRadius: 0,
+        borderBottomRightRadius: 0,
     },
 });
 
@@ -68,6 +76,7 @@ const EMPTY_MEMBERS: ChannelMembership[] = [];
 const EMPTY_IDS = {};
 const {USER_PROFILE} = Screens;
 const CLOSE_BUTTON_ID = 'close-user-profile';
+const TEST_ID = 'manage_members';
 
 export default function ManageChannelMembers({
     canManageAndRemoveMembers,
@@ -77,6 +86,7 @@ export default function ManageChannelMembers({
     currentUserId,
     tutorialWatched,
     teammateDisplayNameSetting,
+    channelAbacPolicyEnforced,
 }: Props) {
     const serverUrl = useServerUrl();
     const theme = useTheme();
@@ -84,10 +94,14 @@ export default function ManageChannelMembers({
 
     const searchTimeoutId = useRef<NodeJS.Timeout | null>(null);
     const mounted = useRef(false);
+    const hasMoreProfiles = useRef(true);
+    const pageRef = useRef(0);
+
+    // Use the hook to fetch access control attributes
+    const {attributeTags} = useAccessControlAttributes('channel', channelId, channelAbacPolicyEnforced);
 
     const [isManageMode, setIsManageMode] = useState(false);
     const [profiles, setProfiles] = useState<UserProfile[]>(EMPTY);
-    const hasMoreProfiles = useRef(false);
     const [channelMembers, setChannelMembers] = useState<ChannelMembership[]>(EMPTY_MEMBERS);
     const [searchResults, setSearchResults] = useState<UserProfile[]>(EMPTY);
     const [loading, setLoading] = useState(true);
@@ -97,6 +111,9 @@ export default function ManageChannelMembers({
     const clearSearch = useCallback(() => {
         setTerm('');
         setSearchResults(EMPTY);
+        if (searchTimeoutId.current) {
+            clearTimeout(searchTimeoutId.current);
+        }
     }, []);
 
     const close = useCallback(() => {
@@ -126,7 +143,7 @@ export default function ManageChannelMembers({
 
         Keyboard.dismiss();
         openAsBottomSheet({screen: USER_PROFILE, title, theme, closeButtonId: CLOSE_BUTTON_ID, props});
-    }, [canManageAndRemoveMembers, channelId, isManageMode, currentUserId]);
+    }, [currentUserId, isManageMode, formatMessage, channelId, canManageAndRemoveMembers, theme, serverUrl]);
 
     const searchUsers = useCallback(async (searchTerm: string) => {
         setSearchedTerm(searchTerm);
@@ -170,7 +187,7 @@ export default function ManageChannelMembers({
                 enabled: true,
                 id: MANAGE_BUTTON,
                 showAsAction: 'always',
-                testID: 'manage_members.button',
+                testID: `${TEST_ID}.button`,
                 text: formatMessage(manage ? messages.button_done : messages.button_manage),
             }],
         });
@@ -231,23 +248,38 @@ export default function ManageChannelMembers({
 
     useNavButtonPressed(MANAGE_BUTTON, componentId, toggleManageEnabled, [toggleManageEnabled]);
 
+    const getFetchChannelMembers = useCallback(async () => {
+        const options: GetUsersOptions = {sort: 'admin', active: true, per_page: PER_PAGE_DEFAULT, page: pageRef.current};
+        const {users, members} = await fetchChannelMemberships(serverUrl, channelId, options, true);
+
+        if (!mounted.current) {
+            return;
+        }
+
+        if (users.length < PER_PAGE_DEFAULT) {
+            hasMoreProfiles.current = false;
+        }
+
+        if (users.length) {
+            setChannelMembers((prev) => [...prev, ...members]);
+            setProfiles((prev) => [...prev, ...users]);
+        }
+
+        setLoading(false);
+    }, [serverUrl, channelId]);
+
+    const handleReachedBottom = useCallback(() => {
+        if (hasMoreProfiles.current && !loading && !searchedTerm) {
+            pageRef.current += 1;
+            setLoading(true);
+            getFetchChannelMembers();
+        }
+    }, [loading, searchedTerm, getFetchChannelMembers]);
+
     useEffect(() => {
         mounted.current = true;
-        const options: GetUsersOptions = {sort: 'admin', active: true, per_page: PER_PAGE_DEFAULT};
-        fetchChannelMemberships(serverUrl, channelId, options, true).then(({users, members}) => {
-            if (!mounted.current) {
-                return;
-            }
+        getFetchChannelMembers();
 
-            if (users.length >= PER_PAGE_DEFAULT) {
-                hasMoreProfiles.current = true;
-            }
-            if (users.length) {
-                setProfiles(users);
-                setChannelMembers(members);
-            }
-            setLoading(false);
-        });
         return () => {
             mounted.current = false;
         };
@@ -271,8 +303,22 @@ export default function ManageChannelMembers({
     return (
         <SafeAreaView
             style={styles.container}
-            testID='manage_members.screen'
+            testID={`${TEST_ID}.screen`}
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
         >
+            {channelAbacPolicyEnforced && (
+                <SectionNotice
+                    type='info'
+                    title={formatMessage({
+                        id: 'channel.abac_policy_enforced.title',
+                        defaultMessage: 'Channel access is restricted by user attributes',
+                    })}
+                    tags={attributeTags.length > 0 ? attributeTags : undefined}
+                    location={Screens.MANAGE_CHANNEL_MEMBERS}
+                    testID={`${TEST_ID}.notice`}
+                    squareCorners={true}
+                />
+            )}
             <View style={styles.searchBar}>
                 <Search
                     autoCapitalize='none'
@@ -283,7 +329,7 @@ export default function ManageChannelMembers({
                     onSubmitEditing={search}
                     placeholder={formatMessage({id: 'search_bar.search', defaultMessage: 'Search'})}
                     placeholderTextColor={changeOpacity(theme.centerChannelColor, 0.5)}
-                    testID='manage_members.search_bar'
+                    testID={`${TEST_ID}.search_bar`}
                     value={term}
                 />
             </View>
@@ -298,9 +344,11 @@ export default function ManageChannelMembers({
                 showManageMode={canManageAndRemoveMembers && isManageMode}
                 showNoResults={!loading}
                 term={searchedTerm}
-                testID='manage_members.user_list'
+                testID={`${TEST_ID}.user_list`}
                 tutorialWatched={tutorialWatched}
                 includeUserMargin={true}
+                fetchMore={handleReachedBottom}
+                location={Screens.MANAGE_CHANNEL_MEMBERS}
             />
         </SafeAreaView>
     );

@@ -2,23 +2,26 @@
 // See LICENSE.txt for license information.
 
 import {makeCallsBaseAndBadgeRGB, rgbToCSS} from '@mattermost/calls';
+import {type CallsConfig, type CallPostProps, isCaption, type Caption, isCallJobMetadata, type CallJobMetadata} from '@mattermost/calls/lib/types';
 import {Alert} from 'react-native';
-import {TextTrackType} from 'react-native-video';
+import {SelectedTrackType, TextTrackType, type ISO639_1, type SelectedTrack, type TextTracks} from 'react-native-video';
 
 import {buildFileUrl} from '@actions/remote/file';
 import {Calls, Post} from '@constants';
 import {NOTIFICATION_SUB_TYPE} from '@constants/push_notification';
 import {isMinimumServerVersion} from '@utils/helpers';
+import {ensureNumber, ensureString, isArrayOf, isRecordOf, isStringArray} from '@utils/types';
 import {displayUsername} from '@utils/user';
 
-import type {CallSession, CallsTheme, CallsVersion, SelectedSubtitleTrack, SubtitleTrack} from '@calls/types/calls';
-import type {CallsConfig, Caption} from '@mattermost/calls/lib/types';
+import type {
+    CallsConfigState,
+    CallSession,
+    CallsTheme,
+} from '@calls/types/calls';
 import type PostModel from '@typings/database/models/servers/post';
 import type UserModel from '@typings/database/models/servers/user';
 import type {IntlShape} from 'react-intl';
 import type {RTCIceServer} from 'react-native-webrtc';
-
-const callsMessageRegex = /^\u200b.* is inviting you to a call$/;
 
 export function sortSessions(locale: string, teammateNameDisplay: string, sessions?: Dictionary<CallSession>, presenterID?: string): CallSession[] {
     if (!sessions) {
@@ -90,13 +93,12 @@ export function isSupportedServerCalls(serverVersion?: string) {
     return false;
 }
 
-export function isMultiSessionSupported(callsVersion: CallsVersion) {
-    return isMinimumServerVersion(
-        callsVersion.version,
-        Calls.MultiSessionCallsVersion.MAJOR_VERSION,
-        Calls.MultiSessionCallsVersion.MIN_VERSION,
-        Calls.MultiSessionCallsVersion.PATCH_VERSION,
-    );
+export function isHostControlsAllowed(config: CallsConfigState) {
+    return Boolean(config.HostControlsAllowed);
+}
+
+export function areGroupCallsAllowed(config: CallsConfigState) {
+    return Boolean(config.GroupCallsAllowed);
 }
 
 export function isCallsCustomMessage(post: PostModel | Post): boolean {
@@ -195,41 +197,46 @@ export function fillUserModels(sessions: Dictionary<CallSession>, models: UserMo
 }
 
 export function isCallsStartedMessage(payload?: NotificationData) {
-    if (payload?.sub_type === NOTIFICATION_SUB_TYPE.CALLS) {
-        return true;
-    }
-
-    // MM-55506 - Remove once we can assume MM servers will be >= 9.3.0, mobile will be >= 2.11.0,
-    // calls will be >= 0.21.0, and push proxy will be >= 5.27.0
-    return (payload?.message === 'You\'ve been invited to a call' || callsMessageRegex.test(payload?.message || ''));
+    return payload?.sub_type === NOTIFICATION_SUB_TYPE.CALLS;
 }
 
-export const hasCaptions = (postProps?: Record<string, any> & { captions?: Caption[] }): boolean => {
-    return !(!postProps || !postProps.captions?.[0]);
+export const hasCaptions = (postProps?: Record<string, unknown>): boolean => {
+    return Boolean(isArrayOf<Caption>(postProps?.captions, isCaption) && postProps.captions[0]);
 };
 
-export const getTranscriptionUri = (serverUrl: string, postProps?: Record<string, any> & { captions?: Caption[] }): {
-    tracks?: SubtitleTrack[];
-    selected: SelectedSubtitleTrack;
+export const getTranscriptionUri = (serverUrl: string, postProps?: Record<string, unknown>): {
+    tracks?: TextTracks;
+    selected: SelectedTrack;
 } => {
     // Note: We're not using hasCaptions above because this tells typescript that the caption exists later.
     // We could use some fancy typescript to do the same, but it's not worth the complexity.
-    if (!postProps || !postProps.captions?.[0]) {
+    if (!isArrayOf<Caption>(postProps?.captions, isCaption) || !postProps.captions[0]) {
         return {
             tracks: undefined,
-            selected: {type: 'disabled'},
+            selected: {type: SelectedTrackType.DISABLED, value: ''},
         };
     }
 
-    const tracks: SubtitleTrack[] = postProps.captions.map((t) => ({
+    const tracks: TextTracks = postProps.captions.map((t) => ({
         title: t.title,
-        language: t.language,
+        language: t.language as ISO639_1,
         type: TextTrackType.VTT,
         uri: buildFileUrl(serverUrl, t.file_id),
     }));
 
     return {
         tracks,
-        selected: {type: 'index', value: 0},
+        selected: {type: SelectedTrackType.INDEX, value: 0},
     };
 };
+
+export function getCallPropsFromPost(post: PostModel | Post): CallPostProps {
+    return {
+        title: ensureString(post.props?.title),
+        start_at: ensureNumber(post.props?.start_at),
+        end_at: ensureNumber(post.props?.end_at),
+        recordings: isRecordOf<CallJobMetadata>(post.props?.recordings, isCallJobMetadata) ? post.props.recordings : {},
+        transcriptions: isRecordOf<CallJobMetadata>(post.props?.transcriptions, isCallJobMetadata) ? post.props.transcriptions : {},
+        participants: isStringArray(post.props?.participants) ? post.props.participants : [],
+    };
+}

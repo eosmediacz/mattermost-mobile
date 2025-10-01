@@ -20,6 +20,11 @@ class ServerScreen {
         displayHelp: 'server_form.display_help',
         connectButton: 'server_form.connect.button',
         connectButtonDisabled: 'server_form.connect.button.disabled',
+        advancedOptionsToggle: 'server_form.advanced_options.toggle',
+        preauthSecretInput: 'server_form.preauth_secret.input',
+        preauthSecretHelp: 'server_form.preauth_secret_help',
+        usernameInput: 'login_form.username.input',
+        usernameInputError: 'login_form.username.input.error',
     };
 
     serverScreen = element(by.id(this.testID.serverScreen));
@@ -35,6 +40,10 @@ class ServerScreen {
     displayHelp = element(by.id(this.testID.displayHelp));
     connectButton = element(by.id(this.testID.connectButton));
     connectButtonDisabled = element(by.id(this.testID.connectButtonDisabled));
+    advancedOptionsToggle = element(by.id(this.testID.advancedOptionsToggle));
+    preauthSecretInput = element(by.id(this.testID.preauthSecretInput));
+    preauthSecretHelp = element(by.id(this.testID.preauthSecretHelp));
+    usernameInput = element(by.id(this.testID.usernameInput));
 
     toBeVisible = async () => {
         await waitFor(this.serverScreen).toExist().withTimeout(timeouts.TEN_SEC);
@@ -46,20 +55,24 @@ class ServerScreen {
     connectToServer = async (serverUrl: string, serverDisplayName: string) => {
         await this.toBeVisible();
         await this.serverUrlInput.replaceText(serverUrl);
-        await this.serverUrlInput.tapReturnKey();
         await this.serverDisplayNameInput.replaceText(serverDisplayName);
         if (isAndroid()) {
-            await this.serverDisplayNameInput.tapReturnKey();
+            await this.tapConnectButton();
         }
         if (isIos()) {
             await this.tapConnectButton();
-
-            if (serverUrl.includes('127.0.0.1')) {
-                // # Tap alert okay button
-                await waitFor(Alert.okayButton).toExist().withTimeout(timeouts.TEN_SEC);
-                await Alert.okayButton.tap();
+            if (serverUrl.includes('127.0.0.1') || !process.env.CI) {
+                try {
+                    // # Tap alert okay button
+                    await waitFor(Alert.okayButton).toExist().withTimeout(timeouts.TEN_SEC);
+                    await Alert.okayButton.tap();
+                } catch (error) {
+                    /* eslint-disable no-console */
+                    console.log('Alert button did not appear!');
+                }
             }
         }
+        await waitFor(this.usernameInput).toExist().withTimeout(isAndroid()? timeouts.ONE_MIN : timeouts.HALF_MIN);
     };
 
     close = async () => {
@@ -70,6 +83,47 @@ class ServerScreen {
     tapConnectButton = async () => {
         await this.connectButton.tap();
         await wait(timeouts.ONE_SEC);
+    };
+
+    toggleAdvancedOptions = async () => {
+        await this.advancedOptionsToggle.tap();
+        await wait(timeouts.ONE_SEC);
+    };
+
+    enterPreauthSecret = async (secret: string) => {
+        await waitFor(this.preauthSecretInput).toBeVisible().withTimeout(timeouts.TEN_SEC);
+        await this.preauthSecretInput.replaceText(secret);
+    };
+
+    connectToServerWithPreauthSecret = async (serverUrl: string, serverDisplayName: string, preauthSecret: string) => {
+        await this.toBeVisible();
+        await this.serverUrlInput.replaceText(serverUrl);
+        await this.serverDisplayNameInput.replaceText(serverDisplayName);
+
+        // Toggle advanced options to show preauth secret field
+        await this.toggleAdvancedOptions();
+
+        // Enter preauth secret
+        await this.enterPreauthSecret(preauthSecret);
+
+        // Connect
+        if (isAndroid()) {
+            await this.tapConnectButton();
+        }
+        if (isIos()) {
+            await this.tapConnectButton();
+            if (serverUrl.includes('127.0.0.1') || !process.env.CI) {
+                try {
+                    // # Tap alert okay button
+                    await waitFor(Alert.okayButton).toExist().withTimeout(timeouts.TEN_SEC);
+                    await Alert.okayButton.tap();
+                } catch (error) {
+                    /* eslint-disable no-console */
+                    console.log('Alert button did not appear!');
+                }
+            }
+        }
+        await waitFor(this.usernameInput).toExist().withTimeout(isAndroid()? timeouts.ONE_MIN : timeouts.HALF_MIN);
     };
 }
 

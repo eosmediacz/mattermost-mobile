@@ -2,12 +2,12 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {useIntl} from 'react-intl';
+import {defineMessage, useIntl} from 'react-intl';
 import {View, Pressable} from 'react-native';
 
 import {dismissIncomingCall} from '@calls/actions';
 import {leaveAndJoinWithAlert, showLimitRestrictedAlert} from '@calls/alerts';
-import {removeIncomingCall} from '@calls/state';
+import {removeIncomingCall, setJoiningChannelId} from '@calls/state';
 import CompassIcon from '@components/compass_icon';
 import FormattedRelativeTime from '@components/formatted_relative_time';
 import FormattedText from '@components/formatted_text';
@@ -130,6 +130,11 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     },
 }));
 
+const callParticipantsMessage = defineMessage({
+    id: 'calls.join_call_avatars.bottom_sheet_title',
+    defaultMessage: 'Call participants',
+});
+
 const JoinCallBanner = ({
     channelId,
     callId,
@@ -148,7 +153,10 @@ const JoinCallBanner = ({
             showLimitRestrictedAlert(limitRestrictedInfo, intl);
             return;
         }
-        leaveAndJoinWithAlert(intl, serverUrl, channelId);
+
+        setJoiningChannelId(channelId);
+        await leaveAndJoinWithAlert(intl, serverUrl, channelId);
+        setJoiningChannelId(null);
     };
 
     const onDismissPress = () => {
@@ -197,6 +205,7 @@ const JoinCallBanner = ({
                     overflowContainerStyle={style.overflowContainer}
                     overflowItemStyle={style.overflowItem}
                     overflowTextStyle={style.overflowText}
+                    bottomSheetTitle={callParticipantsMessage}
                 />
                 <Pressable onPress={onDismissPress}>
                     <View style={style.dismissContainer}>

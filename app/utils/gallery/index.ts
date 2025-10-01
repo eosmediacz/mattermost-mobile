@@ -1,8 +1,9 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React from 'react';
-import {DeviceEventEmitter, Keyboard, NativeModules, Platform} from 'react-native';
+import RNUtils from '@mattermost/rnutils';
+import React, {type RefObject} from 'react';
+import {DeviceEventEmitter, Image, Keyboard, Platform, View} from 'react-native';
 import {Navigation, type Options, type OptionsLayout} from 'react-native-navigation';
 import {measure, type AnimatedRef} from 'react-native-reanimated';
 
@@ -28,7 +29,7 @@ export const clampVelocity = (velocity: number, minVelocity: number, maxVelocity
     return Math.max(Math.min(velocity, -minVelocity), -maxVelocity);
 };
 
-export const fileToGalleryItem = (file: FileInfo, authorId?: string, postProps?: Record<string, any>, lastPictureUpdate = 0): GalleryItemType => {
+export const fileToGalleryItem = (file: FileInfo, authorId?: string, postProps?: Record<string, unknown>, lastPictureUpdate = 0): GalleryItemType => {
     let type: GalleryItemType['type'] = 'file';
     if (isVideo(file)) {
         type = 'video';
@@ -119,6 +120,28 @@ export function measureItem(ref: AnimatedRef<any>, sharedValues: GalleryManagerS
     }
 }
 
+export function measureViewInWindow(ref: RefObject<View>): Promise<{x: number; y: number; width: number; height: number}> {
+    return new Promise((resolve) => {
+        if (ref.current) {
+            ref.current.measure((x, y, width, height, pageX, pageY) => {
+                resolve({
+                    x: pageX,
+                    y: pageY,
+                    width,
+                    height,
+                });
+            });
+        } else {
+            resolve({
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            });
+        }
+    });
+}
+
 export function openGalleryAtIndex(galleryIdentifier: string, initialIndex: number, items: GalleryItemType[], hideActions = false) {
     Keyboard.dismiss();
     const props = {
@@ -156,7 +179,7 @@ export function openGalleryAtIndex(galleryIdentifier: string, initialIndex: numb
     if (Platform.OS === 'ios') {
         // on iOS we need both the navigation & the module
         Navigation.setDefaultOptions({layout});
-        NativeModules.SplitView.unlockOrientation();
+        RNUtils.unlockOrientation();
     }
     showOverlay(Screens.GALLERY, props, options);
 
@@ -167,12 +190,8 @@ export function openGalleryAtIndex(galleryIdentifier: string, initialIndex: numb
 
 export const typedMemo: <T>(c: T) => T = React.memo;
 
-export const workletNoop = () => {
-    'worklet';
-};
-
-export const workletNoopTrue = () => {
-    'worklet';
-
-    return true;
+export const getImageSize = (uri: string) => {
+    return new Promise<{width: number; height: number}>((resolve, reject) => {
+        Image.getSize(uri, (width, height) => resolve({width, height}), reject);
+    });
 };

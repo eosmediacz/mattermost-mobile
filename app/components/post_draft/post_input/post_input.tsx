@@ -1,6 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {useHardwareKeyboardEvents} from '@mattermost/hardware-keyboard';
 import {useManagedConfig} from '@mattermost/react-native-emm';
 import PasteableTextInput, {type PastedFile, type PasteInputRef} from '@mattermost/react-native-paste-input';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -9,17 +10,18 @@ import {
     Alert, AppState, type AppStateStatus, DeviceEventEmitter, type EmitterSubscription, Keyboard,
     type NativeSyntheticEvent, Platform, type TextInputSelectionChangeEventData,
 } from 'react-native';
-import HWKeyboardEvent from 'react-native-hw-keyboard-event';
 
 import {updateDraftMessage} from '@actions/local/draft';
 import {userTyping} from '@actions/websocket/users';
 import {Events, Screens} from '@constants';
+import {useExtraKeyboardContext} from '@context/extra_keyboard';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {useIsTablet} from '@hooks/device';
 import {useInputPropagation} from '@hooks/input';
 import {t} from '@i18n';
 import NavigationStore from '@store/navigation_store';
+import {handleDraftUpdate} from '@utils/draft';
 import {extractFileInfo} from '@utils/file';
 import {changeOpacity, makeStyleSheetFromTheme, getKeyboardAppearanceFromTheme} from '@utils/theme';
 
@@ -121,6 +123,7 @@ export default function PostInput({
     const style = getStyleSheet(theme);
     const serverUrl = useServerUrl();
     const managedConfig = useManagedConfig<ManagedConfig>();
+    const keyboardContext = useExtraKeyboardContext();
     const [propagateValue, shouldProcessEvent] = useInputPropagation();
 
     const lastTypingEventSent = useRef(0);
@@ -145,13 +148,20 @@ export default function PostInput({
     };
 
     const onBlur = useCallback(() => {
-        updateDraftMessage(serverUrl, channelId, rootId, value);
+        keyboardContext?.registerTextInputBlur();
+        handleDraftUpdate({
+            serverUrl,
+            channelId,
+            rootId,
+            value,
+        });
         setIsFocused(false);
-    }, [channelId, rootId, value, setIsFocused]);
+    }, [keyboardContext, serverUrl, channelId, rootId, value, setIsFocused]);
 
     const onFocus = useCallback(() => {
+        keyboardContext?.registerTextInputFocus();
         setIsFocused(true);
-    }, [setIsFocused]);
+    }, [setIsFocused, keyboardContext]);
 
     const checkMessageLength = useCallback((newValue: string) => {
         const valueLength = newValue.trim().length;
@@ -220,7 +230,7 @@ export default function PostInput({
         addFiles(await extractFileInfo(files));
     }, [addFiles, intl]);
 
-    const handleHardwareEnterPress = useCallback((keyEvent: {pressedKey: string}) => {
+    const handleHardwareEnterPress = useCallback(() => {
         const topScreen = NavigationStore.getVisibleScreen();
         let sourceScreen: AvailableScreens = Screens.CHANNEL;
         if (rootId) {
@@ -229,23 +239,29 @@ export default function PostInput({
             sourceScreen = Screens.HOME;
         }
         if (topScreen === sourceScreen) {
-            switch (keyEvent.pressedKey) {
-                case 'enter':
-                    sendMessage();
-                    break;
-                case 'shift-enter': {
-                    let newValue: string;
-                    updateValue((v) => {
-                        newValue = v.substring(0, cursorPosition) + '\n' + v.substring(cursorPosition);
-                        return newValue;
-                    });
-                    updateCursorPosition((pos) => pos + 1);
-                    propagateValue(newValue!);
-                    break;
-                }
-            }
+            sendMessage();
         }
-    }, [sendMessage, updateValue, cursorPosition, isTablet]);
+    }, [sendMessage, rootId, isTablet]);
+
+    const handleHardwareShiftEnter = useCallback(() => {
+        const topScreen = NavigationStore.getVisibleScreen();
+        let sourceScreen: AvailableScreens = Screens.CHANNEL;
+        if (rootId) {
+            sourceScreen = Screens.THREAD;
+        } else if (isTablet) {
+            sourceScreen = Screens.HOME;
+        }
+
+        if (topScreen === sourceScreen) {
+            let newValue: string;
+            updateValue((v) => {
+                newValue = v.substring(0, cursorPosition) + '\n' + v.substring(cursorPosition);
+                return newValue;
+            });
+            updateCursorPosition((pos) => pos + 1);
+            propagateValue(newValue!);
+        }
+    }, [rootId, isTablet, updateValue, updateCursorPosition, cursorPosition, propagateValue]);
 
     const onAppStateChange = useCallback((appState: AppStateStatus) => {
         if (appState !== 'active' && previousAppState.current === 'active') {
@@ -301,12 +317,11 @@ export default function PostInput({
         }
     }, [value]);
 
-    useEffect(() => {
-        const listener = HWKeyboardEvent.onHWKeyPressed(handleHardwareEnterPress);
-        return () => {
-            listener.remove();
-        };
-    }, [handleHardwareEnterPress]);
+    const events = useMemo(() => ({
+        onEnterPressed: handleHardwareEnterPress,
+        onShiftEnterPressed: handleHardwareShiftEnter,
+    }), [handleHardwareEnterPress, handleHardwareShiftEnter]);
+    useHardwareKeyboardEvents(events);
 
     return (
         <PasteableTextInput
@@ -330,6 +345,7 @@ export default function PostInput({
             underlineColorAndroid='transparent'
             textContentType='none'
             value={value}
+            autoCapitalize='sentences'
         />
     );
 }
