@@ -5,8 +5,9 @@ import {
     ChannelInfoScreen,
     ChannelScreen,
     ChannelListScreen,
+    ChannelSettingsScreen,
 } from '@support/ui/screen';
-import {timeouts, wait} from '@support/utils';
+import {timeouts} from '@support/utils';
 import {expect} from 'detox';
 
 class CreateOrEditChannelScreen {
@@ -17,8 +18,8 @@ class CreateOrEditChannelScreen {
         createButton: 'create_or_edit_channel.create.button',
         saveButton: 'create_or_edit_channel.save.button',
         scrollView: 'create_or_edit_channel.scroll_view',
-        makePrivateToggledOff: 'channel_info_form.make_private.toggled.false',
-        makePrivateToggledOn: 'channel_info_form.make_private.toggled.true',
+        makePrivateToggledOff: 'channel_info_form.make_private.toggled.false.button',
+        makePrivateToggledOn: 'channel_info_form.make_private.toggled.true.button',
         makePrivateDescription: 'channel_info_form.make_private.description',
         displayNameInput: 'channel_info_form.display_name.input',
         purposeInput: 'channel_info_form.purpose.input',
@@ -51,15 +52,16 @@ class CreateOrEditChannelScreen {
     openCreateChannel = async () => {
         // # Open create channel screen
         await ChannelListScreen.headerPlusButton.tap();
-        await wait(timeouts.ONE_SEC);
         await ChannelListScreen.createNewChannelItem.tap();
 
         return this.toBeVisible();
     };
 
     openEditChannel = async () => {
-        // # Open edit channel screen
-        await ChannelInfoScreen.editChannelOption.tap();
+        // # Open edit channel screen (Channel Info > Channel Settings > Channel info)
+        await ChannelInfoScreen.openChannelSettings();
+        await ChannelSettingsScreen.toBeVisible();
+        await ChannelSettingsScreen.channelInfoOption.tap({x: 1, y: 1});
 
         return this.toBeVisible();
     };
@@ -93,6 +95,16 @@ class CreateOrEditChannelScreen {
     toggleMakePrivateOff = async () => {
         await this.makePrivateToggledOn.tap();
         await expect(this.makePrivateToggledOff).toBeVisible();
+    };
+
+    clickonCreateButton = async () => {
+        await this.createButton.tap();
+        try {
+            await ChannelScreen.scheduledPostTooltipCloseButton.tap();
+        } catch (error) {
+            // eslint-disable-next-line no-console
+            console.log('Element not visible, skipping click');
+        }
     };
 }
 

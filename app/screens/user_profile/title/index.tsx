@@ -5,13 +5,15 @@ import {useIntl} from 'react-intl';
 import {Text, TouchableOpacity, View} from 'react-native';
 import Animated from 'react-native-reanimated';
 
+import {buildAbsoluteUrl} from '@actions/remote/file';
+import {buildProfileImageUrlFromUser} from '@actions/remote/user';
 import {GalleryInit} from '@context/gallery';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {useIsTablet} from '@hooks/device';
 import {useGalleryItem} from '@hooks/gallery';
-import NetworkManager from '@managers/network_manager';
 import {openGalleryAtIndex} from '@utils/gallery';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 import {displayUsername} from '@utils/user';
@@ -47,6 +49,8 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     details: {
         marginLeft: 24,
         justifyContent: 'center',
+        alignItems: 'flex-start',
+        gap: 4,
         flex: 1,
     },
     displayName: {
@@ -93,17 +97,19 @@ const UserProfileTitle = ({
         if (enablePostIconOverride && userIconOverride) {
             imageUrl = userIconOverride;
         } else {
-            try {
-                const client = NetworkManager.getClient(serverUrl);
-                const lastPictureUpdate = user.isBot ? (user.props?.bot_last_icon_update || 0) : user.lastPictureUpdate;
-                const pictureUrl = client.getProfilePictureUrl(user.id, lastPictureUpdate);
-                imageUrl = `${serverUrl}${pictureUrl}`;
-            } catch {
-                // handle below that the client is not set
-            }
+            const pictureUrl = buildProfileImageUrlFromUser(serverUrl, user);
+            imageUrl = buildAbsoluteUrl(serverUrl, pictureUrl);
         }
 
         if (imageUrl) {
+            // Match the cache key pattern used by UserProfileAvatar component
+            let cacheKey;
+            if (enablePostIconOverride && userIconOverride) {
+                cacheKey = `user-override-icon-${urlSafeBase64Encode(userIconOverride)}`;
+            } else {
+                cacheKey = `user-${user.id}-${user.lastPictureUpdate}`;
+            }
+
             const item: GalleryItemType = {
                 id: user.id,
                 uri: imageUrl,
@@ -114,6 +120,7 @@ const UserProfileTitle = ({
                 mime_type: 'image/png',
                 authorId: user.id,
                 type: 'avatar',
+                cacheKey,
             };
             openGalleryAtIndex(galleryIdentifier, 0, [item]);
         }

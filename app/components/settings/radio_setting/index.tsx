@@ -12,6 +12,8 @@ import Label from '../label';
 
 import RadioEntry from './radio_entry';
 
+import type {AvailableScreens} from '@typings/screens/navigation';
+
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         items: {
@@ -26,12 +28,13 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 
 type Props = {
     label: string;
-    options?: PostActionOption[];
+    options?: DialogOption[];
     onChange: (value: string) => void;
     helpText?: string;
     errorText?: string;
-    value: string;
+    value?: string;
     testID: string;
+    location: AvailableScreens;
 }
 function RadioSetting({
     label,
@@ -41,6 +44,7 @@ function RadioSetting({
     errorText = '',
     testID,
     value,
+    location,
 }: Props) {
     const theme = useTheme();
     const style = getStyleSheet(theme);
@@ -59,11 +63,12 @@ function RadioSetting({
                     text={text}
                     value={entryValue}
                     key={entryValue}
+                    testID={`${testID}.radio.${entryValue}.button`}
                 />,
             );
         }
         return elements;
-    }, [value, onChange, options]);
+    }, [value, onChange, options, testID]);
 
     return (
         <View>
@@ -80,6 +85,7 @@ function RadioSetting({
                 disabled={false}
                 errorText={errorText}
                 helpText={helpText}
+                location={location}
             />
         </View>
     );

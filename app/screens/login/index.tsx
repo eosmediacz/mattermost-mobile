@@ -2,10 +2,11 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Platform, useWindowDimensions, View, type LayoutChangeEvent} from 'react-native';
+import {useIntl} from 'react-intl';
+import {Platform, Text, useWindowDimensions, View, type LayoutChangeEvent} from 'react-native';
 import {KeyboardAwareScrollView} from 'react-native-keyboard-aware-scroll-view';
 import {Navigation} from 'react-native-navigation';
-import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import {SafeAreaView} from 'react-native-safe-area-context';
 
 import FormattedText from '@components/formatted_text';
@@ -14,14 +15,18 @@ import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useIsTablet} from '@hooks/device';
 import {useDefaultHeaderHeight} from '@hooks/header';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import {useScreenTransitionAnimation} from '@hooks/screen_transition_animation';
+import {usePreventDoubleTap} from '@hooks/utils';
+import IntuneManager from '@managers/intune_manager';
 import NetworkManager from '@managers/network_manager';
+import SecurityManager from '@managers/security_manager';
 import Background from '@screens/background';
 import {dismissModal, goToScreen, loginAnimationOptions, popTopScreen} from '@screens/navigation';
-import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
 import Form from './form';
+import LinkSent from './link_sent';
 import LoginOptionsSeparator from './login_options_separator';
 import SsoOptions from './sso_options';
 
@@ -71,6 +76,19 @@ const getStyles = makeStyleSheetFromTheme((theme: Theme) => ({
         marginBottom: 12,
         ...typography('Body', 200, 'Regular'),
     },
+    linkSentContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: 24,
+    },
+    linkSentTitle: {
+        ...typography('Heading', 1000, 'SemiBold'),
+        color: theme.centerChannelColor,
+    },
+    linkSentDescription: {
+        ...typography('Body', 200, 'Regular'),
+        color: changeOpacity(theme.centerChannelColor, 0.72),
+    },
 }));
 
 const AnimatedSafeArea = Animated.createAnimatedComponent(SafeAreaView);
@@ -85,11 +103,14 @@ const LoginOptions = ({
     const dimensions = useWindowDimensions();
     const defaultHeaderHeight = useDefaultHeaderHeight();
     const isTablet = useIsTablet();
-    const translateX = useSharedValue(dimensions.width);
     const [contentFillScreen, setContentFillScreen] = useState(false);
     const numberSSOs = useMemo(() => {
         return Object.values(ssoOptions).filter((v) => v.enabled).length;
     }, [ssoOptions]);
+    const intl = useIntl();
+
+    const [magicLinkSent, setMagicLinkSent] = useState(false);
+
     const description = useMemo(() => {
         if (hasLoginForm) {
             return (
@@ -119,24 +140,17 @@ const LoginOptions = ({
                 defaultMessage="You can't log in to your account yet. At least one login option must be configured. Contact your System Admin for assistance."
             />
         );
-    }, [hasLoginForm, numberSSOs, theme]);
+    }, [hasLoginForm, numberSSOs, styles.subheader]);
 
-    const goToSso = preventDoubleTap((ssoType: string) => {
+    const goToSso = usePreventDoubleTap(useCallback((ssoType: string) => {
         goToScreen(Screens.SSO, '', {config, extra, launchError, launchType, license, theme, ssoType, serverDisplayName, serverUrl}, loginAnimationOptions());
-    });
+    }, [config, extra, launchError, launchType, license, serverDisplayName, serverUrl, theme]));
 
     const optionsSeparator = hasLoginForm && Boolean(numberSSOs) && (
         <LoginOptionsSeparator
             theme={theme}
         />
     );
-
-    const transform = useAnimatedStyle(() => {
-        const duration = Platform.OS === 'android' ? 250 : 350;
-        return {
-            transform: [{translateX: withTiming(translateX.value, {duration})}],
-        };
-    }, []);
 
     const dismiss = () => {
         dismissModal({componentId});
@@ -160,25 +174,9 @@ const LoginOptions = ({
         });
 
         return () => navigationEvents.remove();
-    }, []);
+    }, [closeButtonId, componentId, serverUrl]);
 
-    useEffect(() => {
-        translateX.value = 0;
-    }, []);
-
-    useEffect(() => {
-        const listener = {
-            componentDidAppear: () => {
-                translateX.value = 0;
-            },
-            componentDidDisappear: () => {
-                translateX.value = -dimensions.width;
-            },
-        };
-        const unsubscribe = Navigation.events().registerComponentListener(listener, Screens.LOGIN);
-
-        return () => unsubscribe.remove();
-    }, [dimensions]);
+    const animatedStyles = useScreenTransitionAnimation(Screens.LOGIN);
 
     useNavButtonPressed(closeButtonId || '', componentId, dismiss, []);
     useAndroidHardwareBackHandler(componentId, pop);
@@ -209,21 +207,36 @@ const LoginOptions = ({
         );
     }
 
+    if (magicLinkSent) {
+        return (
+            <View style={styles.linkSentContainer}>
+                <LinkSent/>
+                <Text style={styles.linkSentTitle}>
+                    {intl.formatMessage({id: 'login.magic_link.link.sent.title', defaultMessage: 'We sent you a link to login'})}
+                </Text>
+                <Text style={styles.linkSentDescription}>
+                    {intl.formatMessage({id: 'login.magic_link.link.sent.description', defaultMessage: 'Please check your email for the link to login. Your link will expire in 5 minutes.'})}
+                </Text>
+            </View>
+        );
+    }
+
     return (
         <View
             style={styles.flex}
             testID='login.screen'
+            nativeID={SecurityManager.getShieldScreenId(componentId, false, true)}
         >
             <Background theme={theme}/>
-            <AnimatedSafeArea style={[styles.container, transform]}>
+            <AnimatedSafeArea style={[styles.container, animatedStyles]}>
                 <KeyboardAwareScrollView
                     bounces={true}
                     contentContainerStyle={[styles.innerContainer, additionalContainerStyle]}
-                    enableAutomaticScroll={true}
+                    enableAutomaticScroll={false}
                     enableOnAndroid={false}
                     enableResetScrollToCoords={true}
-                    extraScrollHeight={0}
-                    keyboardDismissMode='interactive'
+                    extraScrollHeight={20}
+                    keyboardDismissMode='on-drag'
                     keyboardShouldPersistTaps='handled'
                     ref={keyboardAwareRef}
                     scrollToOverflowEnabled={true}
@@ -239,12 +252,14 @@ const LoginOptions = ({
                         <Form
                             config={config}
                             extra={extra}
+                            keyboardAwareRef={keyboardAwareRef}
                             license={license}
                             launchError={launchError}
                             launchType={launchType}
                             theme={theme}
                             serverDisplayName={serverDisplayName}
                             serverUrl={serverUrl}
+                            setMagicLinkSent={setMagicLinkSent}
                         />
                         }
                         {optionsSeparator}
@@ -254,6 +269,8 @@ const LoginOptions = ({
                             ssoOnly={!hasLoginForm}
                             ssoOptions={ssoOptions}
                             theme={theme}
+                            isIntuneEnabled={IntuneManager.isIntuneEnabledForConfigAndLicense(config, license)}
+                            intuneAuthService={config.IntuneAuthService}
                         />
                         }
                     </View>

@@ -9,6 +9,7 @@ import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useKeyboardOverlap} from '@hooks/device';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import SecurityManager from '@managers/security_manager';
 import {dismissModal} from '@screens/navigation';
 import {changeOpacity, getKeyboardAppearanceFromTheme, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
@@ -67,11 +68,11 @@ const FindChannels = ({closeButtonId, componentId}: Props) => {
     const close = useCallback(() => {
         Keyboard.dismiss();
         return dismissModal({componentId});
-    }, []);
+    }, [componentId]);
 
     const onCancel = useCallback(() => {
         dismissModal({componentId});
-    }, []);
+    }, [componentId]);
 
     const onChangeText = useCallback((text: string) => {
         setTerm(text);
@@ -87,6 +88,7 @@ const FindChannels = ({closeButtonId, componentId}: Props) => {
         <View
             style={styles.container}
             testID='find_channels.screen'
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
         >
             <SearchBar
                 autoCapitalize='none'

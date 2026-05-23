@@ -1,15 +1,25 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import type {CallRecordingState, CallsConfig, EmojiData, UserReactionData} from '@mattermost/calls/lib/types';
+import {
+    TranscribeAPI,
+    type CallJobState,
+    type CallsConfig,
+    type EmojiData,
+    type UserReactionData,
+    type CallsVersionInfo,
+} from '@mattermost/calls/lib/types';
+
 import type UserModel from '@typings/database/models/servers/user';
 
 export type GlobalCallsState = {
     micPermissionsGranted: boolean;
+    joiningChannelId: string | null;
 }
 
 export const DefaultGlobalCallsState: GlobalCallsState = {
     micPermissionsGranted: false,
+    joiningChannelId: null,
 };
 
 export type CallsState = {
@@ -42,10 +52,13 @@ export type IncomingCallNotification = {
 
 export type IncomingCalls = {
     incomingCalls: IncomingCallNotification[];
+    currentRingingCallId?: string;
+    callIdHasRung: Dictionary<boolean>;
 }
 
 export const DefaultIncomingCalls: IncomingCalls = {
     incomingCalls: [],
+    callIdHasRung: {},
 };
 
 export type Call = {
@@ -56,7 +69,8 @@ export type Call = {
     screenOn: string;
     threadId: string;
     ownerId: string;
-    recState?: CallRecordingState;
+    recState?: CallJobState;
+    capState?: CallJobState;
     hostId: string;
     dismissed: Dictionary<boolean>;
 }
@@ -94,6 +108,7 @@ export type CurrentCall = Call & {
     reactionStream: ReactionStreamEmoji[];
     callQualityAlert: boolean;
     callQualityAlertDismissed: number;
+    captions: Dictionary<LiveCaptionMobile>;
 }
 
 export const DefaultCurrentCall: CurrentCall = {
@@ -110,6 +125,7 @@ export const DefaultCurrentCall: CurrentCall = {
     reactionStream: [],
     callQualityAlert: false,
     callQualityAlertDismissed: 0,
+    captions: {},
 };
 
 export type CallSession = {
@@ -127,7 +143,7 @@ export type CallsConnection = {
     disconnect: (err?: Error) => void;
     mute: () => void;
     unmute: () => void;
-    waitForPeerConnection: () => Promise<void>;
+    waitForPeerConnection: () => Promise<string>;
     raiseHand: () => void;
     unraiseHand: () => void;
     initializeVoiceTrack: () => void;
@@ -136,8 +152,9 @@ export type CallsConnection = {
 
 export type CallsConfigState = CallsConfig & {
     AllowEnableCalls: boolean;
+    GroupCallsAllowed: boolean;
     pluginEnabled: boolean;
-    version: CallsVersion;
+    version: CallsVersionInfo;
     last_retrieved_at: number;
 }
 
@@ -158,6 +175,12 @@ export const DefaultCallsConfig: CallsConfigState = {
     EnableSimulcast: false,
     EnableRinging: false,
     EnableTranscriptions: false,
+    EnableLiveCaptions: false,
+    HostControlsAllowed: false,
+    EnableAV1: false,
+    TranscribeAPI: TranscribeAPI.WhisperCPP,
+    GroupCallsAllowed: true, // Set to true to keep backward compatibility with older servers.
+    EnableDCSignaling: false,
 };
 
 export type ApiResp = {
@@ -189,19 +212,26 @@ export type AudioDeviceInfo = {
     selectedAudioDevice: AudioDevice;
 };
 
-export type CallsVersion = {
-    version?: string;
-    build?: string;
-};
+export type LiveCaptionMobile = {
+    captionId: string;
+    sessionId: string;
+    userId: string;
+    text: string;
+}
 
-export type SubtitleTrack = {
-    title?: string | undefined;
-    language?: string | undefined;
-    type: 'application/x-subrip' | 'application/ttml+xml' | 'text/vtt';
-    uri: string;
-};
+// TODO: MM-57919, refactor wsmsg data to calls-common
+export type HostControlsMsgData = {
+    channel_id: string;
+    session_id: string;
+}
 
-export type SelectedSubtitleTrack = {
-    type: 'system' | 'disabled' | 'title' | 'language' | 'index';
-    value?: string | number | undefined;
-};
+export type HostControlsLowerHandMsgData = HostControlsMsgData & {
+    call_id: string;
+    host_id: string;
+}
+
+export enum EndCallReturn {
+    Cancel,
+    LeaveCall,
+    EndCall,
+}

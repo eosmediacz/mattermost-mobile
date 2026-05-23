@@ -4,25 +4,23 @@
 import React, {useCallback, useMemo} from 'react';
 import {useIntl} from 'react-intl';
 import {TouchableOpacity} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
+import {buildProfileImageUrlFromUser} from '@actions/remote/user';
 import CompassIcon from '@components/compass_icon';
 import FormattedText from '@components/formatted_text';
 import {ITEM_HEIGHT} from '@components/slide_up_panel_item';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {useIsTablet} from '@hooks/device';
-import NetworkManager from '@managers/network_manager';
+import {usePreventDoubleTap} from '@hooks/utils';
 import {TITLE_HEIGHT} from '@screens/bottom_sheet/content';
 import PanelItem from '@screens/edit_profile/components/panel_item';
 import {bottomSheet} from '@screens/navigation';
 import PickerUtil from '@utils/file/file_picker';
 import {bottomSheetSnapPoint} from '@utils/helpers';
-import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
-import type {Client} from '@client/rest';
 import type UserModel from '@typings/database/models/servers/user';
 
 const hitSlop = {top: 100, bottom: 20, right: 20, left: 100};
@@ -57,21 +55,9 @@ type ImagePickerProps = {
 };
 
 const hasPictureUrl = (user: UserModel, serverUrl: string) => {
-    const {id, lastPictureUpdate} = user;
-
-    let client: Client | undefined;
-    let profileImageUrl: string | undefined;
-
-    try {
-        client = NetworkManager.getClient(serverUrl);
-        profileImageUrl = client.getProfilePictureUrl(id, lastPictureUpdate);
-    } catch {
-        return false;
-    }
-
     // Check if image url includes query string for timestamp. If so,
     // it means the image has been updated from the default, i.e. '.../image?_=1544159746868'
-    return Boolean(profileImageUrl?.includes('image?_'));
+    return buildProfileImageUrlFromUser(serverUrl, user).includes('image?_');
 };
 
 const ProfileImagePicker = ({
@@ -81,14 +67,13 @@ const ProfileImagePicker = ({
 }: ImagePickerProps) => {
     const theme = useTheme();
     const intl = useIntl();
-    const {bottom} = useSafeAreaInsets();
     const serverUrl = useServerUrl();
     const pictureUtils = useMemo(() => new PickerUtil(intl, uploadFiles), [uploadFiles, intl]);
     const canRemovePicture = hasPictureUrl(user, serverUrl);
     const styles = getStyleSheet(theme);
     const isTablet = useIsTablet();
 
-    const showFileAttachmentOptions = useCallback(preventDoubleTap(() => {
+    const showFileAttachmentOptions = usePreventDoubleTap(useCallback(() => {
         const renderContent = () => {
             return (
                 <>
@@ -122,7 +107,7 @@ const ProfileImagePicker = ({
             );
         };
 
-        const snapPoint = bottomSheetSnapPoint(4, ITEM_HEIGHT, bottom) + TITLE_HEIGHT;
+        const snapPoint = bottomSheetSnapPoint(4, ITEM_HEIGHT) + TITLE_HEIGHT;
 
         return bottomSheet({
             closeButtonId: 'close-edit-profile',
@@ -131,7 +116,7 @@ const ProfileImagePicker = ({
             title: 'Change profile photo',
             theme,
         });
-    }), [canRemovePicture, onRemoveProfileImage, bottom, pictureUtils, theme]);
+    }, [canRemovePicture, isTablet, onRemoveProfileImage, pictureUtils, styles.title, theme]));
 
     return (
         <TouchableOpacity

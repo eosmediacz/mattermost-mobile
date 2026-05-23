@@ -18,8 +18,10 @@ const useNavButtonPressed = (navButtonId: string, componentId: string, callback:
         return () => {
             unsubscribe.remove();
         };
+
+    // The dependencies should be passed by the caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, deps);
 };
 
 export default useNavButtonPressed;
-

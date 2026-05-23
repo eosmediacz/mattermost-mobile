@@ -4,6 +4,7 @@
 import React from 'react';
 import {Text} from 'react-native';
 
+import {logError} from '@utils/log';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
@@ -27,18 +28,18 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     },
 }));
 
-class ErrorBoundary extends React.PureComponent<Props, State, any> {
+class ErrorBoundary extends React.PureComponent<Props, State> {
     constructor(props: Props) {
         super(props);
         this.state = {hasError: false};
     }
 
-    componentDidCatch() {
+    componentDidCatch(error: unknown) {
+        logError('Error in ErrorBoundary:', error);
         this.setState({hasError: true});
     }
 
     render() {
-        // eslint-disable-next-line react/prop-types
         const {children, error, theme} = this.props;
         const {hasError} = this.state;
         const style = getStyleSheet(theme);

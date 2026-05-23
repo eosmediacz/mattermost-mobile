@@ -10,6 +10,8 @@ import {typography} from '@utils/typography';
 
 import Single from './single';
 
+import type {SharedItem} from '@mattermost/rnshare';
+
 type Props = {
     files: SharedItem[];
     maxFileSize: number;
@@ -29,8 +31,8 @@ const getStyles = makeStyleSheetFromTheme((theme: Theme) => ({
         marginRight: 20,
     },
     list: {
-        height: 114,
-        top: -8,
+        height: 80,
+        top: 0,
         width: '100%',
     },
     container: {
@@ -38,7 +40,7 @@ const getStyles = makeStyleSheetFromTheme((theme: Theme) => ({
     },
     labelContainer: {
         alignItems: 'flex-start',
-        marginTop: 8,
+        marginTop: 0,
         paddingHorizontal: 20,
         width: '100%',
     },
@@ -65,11 +67,10 @@ const Multiple = ({files, maxFileSize, theme}: Props) => {
                     file={item}
                     isSmall={true}
                     maxFileSize={maxFileSize}
-                    theme={theme}
                 />
             </View>
         );
-    }, [maxFileSize, theme, files]);
+    }, [styles.item, styles.first, styles.last, files.length, maxFileSize]);
 
     return (
         <>

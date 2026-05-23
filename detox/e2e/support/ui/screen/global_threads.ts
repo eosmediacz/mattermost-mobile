@@ -7,15 +7,15 @@ import {
     ThreadOptionsScreen,
 } from '@support/ui/screen';
 import {timeouts, wait} from '@support/utils';
-import {expect} from 'detox';
+import {expect, waitFor} from 'detox';
 
 class GlobalThreadsScreen {
     testID = {
         threadItemPrefix: 'global_threads.threads_list.thread_item.',
         globalThreadsScreen: 'global_threads.screen',
-        headerAllThreadsButton: 'global_threads.threads_list.header.all_threads.button',
-        headerUnreadThreadsButton: 'global_threads.threads_list.header.unread_threads.button',
-        headerUnreadDotBadge: 'global_threads.threads_list.header.unread_dot.badge',
+        headerAllThreadsButton: 'global_threads.threads_list.header.all.button',
+        headerUnreadThreadsButton: 'global_threads.threads_list.header.unreads.button',
+        headerUnreadDotBadge: 'global_threads.threads_list.header.unreads.badge',
         headerMarkAllAsReadButton: 'global_threads.threads_list.header.mark_all_as_read.button',
         emptyThreadsList: 'global_threads.threads_list.empty_state',
         flatThreadsList: 'global_threads.threads_list.flat_list',
@@ -75,7 +75,7 @@ class GlobalThreadsScreen {
 
     back = async () => {
         await this.backButton.tap();
-        await expect(this.globalThreadsScreen).not.toBeVisible();
+        await waitFor(this.globalThreadsScreen).not.toBeVisible().withTimeout(timeouts.TEN_SEC);
     };
 
     openThreadOptionsFor = async (postId: string) => {
@@ -83,7 +83,7 @@ class GlobalThreadsScreen {
         await expect(threadItem).toBeVisible();
 
         // # Open thread options
-        await threadItem.longPress();
+        await threadItem.longPress(timeouts.FOUR_SEC);
         await ThreadOptionsScreen.toBeVisible();
         await wait(timeouts.TWO_SEC);
     };

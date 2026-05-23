@@ -7,6 +7,7 @@ interface ClientConfig {
     AllowCustomThemes: string;
     AllowEditPost: string;
     AllowedThemes: string;
+    AllowDownloadLogs: string;
     AndroidAppDownloadLink: string;
     AndroidLatestVersion: string;
     AndroidMinVersion: string;
@@ -21,6 +22,8 @@ interface ClientConfig {
     BuildHash: string;
     BuildHashEnterprise: string;
     BuildNumber: string;
+    BurnOnReadMaximumTimeToLiveSeconds: string;
+    BurnOnReadDurationSeconds: string;
     CloseUnusedDirectMessages: string;
     CollapsedThreads: string;
     CustomBrandText: string;
@@ -45,11 +48,14 @@ interface ClientConfig {
     EmailNotificationContentsType: string;
     EnableBanner: string;
     EnableBotAccountCreation: string;
+    EnableBurnOnRead: string;
     EnableChannelViewedMessages: string;
+    EnableClientMetrics?: string;
     EnableCluster: string;
     EnableCommands: string;
     EnableCompliance: string;
     EnableConfirmNotificationsToChannel: string;
+    EnableCrossTeamSearch: 'true' | 'false';
     EnableCustomBrand: string;
     EnableCustomEmoji: string;
     EnableCustomTermsOfService: string;
@@ -59,6 +65,7 @@ interface ClientConfig {
     EnableEmailBatching: string;
     EnableEmailInvitations: string;
     EnableEmojiPicker: string;
+    EnableGuestMagicLink: string;
     EnableFileAttachments: string;
     EnableGifPicker: string;
     EnableGuestAccounts: string;
@@ -67,6 +74,8 @@ interface ClientConfig {
     EnableLatex: string;
     EnableLdap: string;
     EnableLinkPreviews: string;
+    EnableManagedChannelCategories?: string;
+    EnablePermalinkPreviews: string;
     EnableMarketplace: string;
     EnableMetrics: string;
     EnableMobileFileDownload: string;
@@ -108,18 +117,21 @@ interface ClientConfig {
     ExperimentalEnableClickToReply: string;
     ExperimentalEnableDefaultChannelLeaveJoinMessages: string;
     ExperimentalEnablePostMetadata: string;
+    ExperimentalEnableWatermark: string;
     ExperimentalGroupUnreadChannels: string;
     ExperimentalHideTownSquareinLHS: string;
     ExperimentalNormalizeMarkdownLinks: string;
     ExperimentalPrimaryTeam: string;
     ExperimentalSharedChannels: string;
-    ExperimentalTimezone: string;
     ExperimentalTownSquareIsReadOnly: string;
     ExperimentalViewArchivedChannels: string;
     ExtendSessionLengthWithActivity: string;
     FeatureFlagAppsEnabled?: string;
     FeatureFlagCollapsedThreads?: string;
     FeatureFlagPostPriority?: string;
+    FeatureFlagChannelBookmarks?: string;
+    FeatureFlagCustomProfileAttributes?: string;
+    FeatureFlagInteractiveDialogAppsForm?: string;
     ForgotPasswordLink?: string;
     GfycatApiKey: string;
     GfycatApiSecret: string;
@@ -131,6 +143,9 @@ interface ClientConfig {
     IosAppDownloadLink: string;
     IosLatestVersion: string;
     IosMinVersion: string;
+    IntuneMAMEnabled?: string;
+    IntuneScope?: string;
+    IntuneAuthService?: string;
     LdapFirstNameAttributeSet: string;
     LdapLastNameAttributeSet: string;
     LdapLoginButtonBorderColor: string;
@@ -146,6 +161,12 @@ interface ClientConfig {
     MaxNotificationsPerChannel: string;
     MaxPostSize: string;
     MinimumHashtagLength: string;
+    MobileAllowPdfLinkNavigation: string;
+    MobileEnableBiometrics: string;
+    MobileEnableSecureFilePreview: string;
+    MobileJailbreakProtection: string;
+    MobilePreventScreenCapture: string;
+    MobileExternalBrowser: string;
     OpenIdButtonColor: string;
     OpenIdButtonText: string;
     PasswordEnableForgotLink: string;
@@ -165,6 +186,8 @@ interface ClientConfig {
     PersistentNotificationIntervalMinutes: string;
     PrivacyPolicyLink: string;
     ReportAProblemLink: string;
+    ReportAProblemMail: string;
+    ReportAProblemType: string;
     RequireEmailVerification: string;
     RestrictDirectMessage: string;
     RunJobs: string;
@@ -177,6 +200,7 @@ interface ClientConfig {
     SamlLoginButtonTextColor: string;
     SamlNicknameAttributeSet: string;
     SamlPositionAttributeSet: string;
+    ScheduledPosts: string;
     SchemaVersion: string;
     SendEmailNotifications: string;
     SendPushNotifications: string;
@@ -186,10 +210,19 @@ interface ClientConfig {
     SiteURL: string;
     SupportEmail: string;
     TeammateNameDisplay: string;
+    TelemetryId: string;
     TermsOfServiceLink: string;
     TimeBetweenUserTypingUpdatesMilliseconds: string;
     Version: string;
     WebsocketPort: string;
     WebsocketSecurePort: string;
     WebsocketURL: string;
+    BurnOnReadDurationSeconds: string;
+
+    // Autotranslations
+    AutoTranslationLanguages: string;
+    EnableAutoTranslation: string;
+    RestrictDMAndGMAutotranslation: string;
 }
+
+type SecurityClientConfig = Pick<ClientConfig, 'MobileEnableBiometrics' | 'MobileJailbreakProtection' | 'MobilePreventScreenCapture' | 'SiteName'>

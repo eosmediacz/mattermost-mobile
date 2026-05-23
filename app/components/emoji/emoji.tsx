@@ -3,17 +3,12 @@
 
 import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
 import React from 'react';
-import {
-    Image,
-    Platform,
-    StyleSheet,
-    Text,
-} from 'react-native';
-import FastImage from 'react-native-fast-image';
+import {StyleSheet, Text} from 'react-native';
 import {of as of$} from 'rxjs';
 import {switchMap} from 'rxjs/operators';
 
 import {fetchCustomEmojiInBatch} from '@actions/remote/custom_emoji';
+import ExpoImage from '@components/expo_image';
 import {useServerUrl} from '@context/server';
 import NetworkManager from '@managers/network_manager';
 import {queryCustomEmojisByName} from '@queries/servers/custom_emoji';
@@ -100,20 +95,23 @@ const Emoji = (props: EmojiProps) => {
         );
     }
 
+    const key = (`${assetImage}-${height}-${width}`);
     if (assetImage) {
-        const key = Platform.OS === 'android' ? (`${assetImage}-${height}-${width}`) : null;
-
         const image = assetImages.get(assetImage);
         if (!image) {
             return null;
         }
+
         return (
-            <Image
-                key={key}
+            <ExpoImage
+                id={`emoji-${emojiName}`}
                 source={image}
                 style={[commonStyle, imageStyle, {width, height}]}
-                resizeMode={'contain'}
+                contentFit='contain'
                 testID={testID}
+                recyclingKey={key}
+                transition={0}
+                cachePolicy='memory'
             />
         );
     }
@@ -122,17 +120,18 @@ const Emoji = (props: EmojiProps) => {
         return null;
     }
 
-    // Android can't change the size of an image after its first render, so
-    // force a new image to be rendered when the size changes
-    const key = Platform.OS === 'android' ? (`${imageUrl}-${height}-${width}`) : null;
-
     return (
-        <FastImage
-            key={key}
+        <ExpoImage
+            id={`emoji-${emojiName}`}
             style={[commonStyle, imageStyle, {width, height}]}
             source={{uri: imageUrl}}
-            resizeMode={FastImage.resizeMode.contain}
+            contentFit='contain'
             testID={testID}
+            recyclingKey={key}
+            cachePolicy='disk'
+            placeholder={require('@assets/images/thumb.png')}
+            placeholderContentFit='contain'
+            transition={0}
         />
     );
 };

@@ -7,12 +7,13 @@ import {View} from 'react-native';
 import AutocompleteSelector from '@components/autocomplete_selector';
 import Markdown from '@components/markdown';
 import BoolSetting from '@components/settings/bool_setting';
+import RadioSetting from '@components/settings/radio_setting';
 import TextSetting from '@components/settings/text_setting';
-import {View as ViewConstants} from '@constants';
+import {Screens, View as ViewConstants} from '@constants';
 import {AppFieldTypes, SelectableAppFieldTypes} from '@constants/apps';
 import {useTheme} from '@context/theme';
+import {isAppSelectOption} from '@utils/dialog_utils';
 import {selectKeyboardType} from '@utils/integrations';
-import {getMarkdownBlockStyles, getMarkdownTextStyles} from '@utils/markdown';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
 const TEXT_DEFAULT_MAX_LENGTH = 150;
@@ -33,9 +34,11 @@ const dialogOptionToAppSelectOption = (option: DialogOption): AppSelectOption =>
 });
 
 const appSelectOptionToDialogOption = (option: AppSelectOption): DialogOption => ({
-    text: option.label,
-    value: option.value,
+    text: option.label || '',
+    value: option.value || '',
 });
+
+const extractOptionValue = (v: AppSelectOption) => v.value || '';
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -64,14 +67,14 @@ function selectDataSource(fieldType: string): string {
     }
 }
 
-function AppsFormField({
+const AppsFormField = React.memo<Props>(({
     field,
     name,
     errorText,
     value,
     onChange,
     performLookup,
-}: Props) {
+}) => {
     const theme = useTheme();
     const style = getStyleSheet(theme);
 
@@ -81,11 +84,11 @@ function AppsFormField({
 
     const handleChange = useCallback((newValue: string | boolean) => {
         onChange(name, newValue);
-    }, [name]);
+    }, [name, onChange]);
 
     const handleSelect = useCallback((newValue: SelectedDialogOption) => {
         if (!newValue) {
-            const emptyValue = field.multiselect ? [] : null;
+            const emptyValue = field.multiselect ? [] : '';
             onChange(name, emptyValue);
             return;
         }
@@ -100,6 +103,9 @@ function AppsFormField({
     }, [onChange, field, name]);
 
     const getDynamicOptions = useCallback(async (userInput = ''): Promise<DialogOption[]> => {
+        if (!field.name) {
+            return [];
+        }
         const options = await performLookup(field.name, userInput);
         return options.map(appSelectOptionToDialogOption);
     }, [performLookup, field]);
@@ -126,7 +132,7 @@ function AppsFormField({
     }, [field, value]);
 
     const selectedValue = useMemo(() => {
-        if (!value || !SelectableAppFieldTypes.includes(field.type)) {
+        if (!SelectableAppFieldTypes.includes(field.type || '')) {
             return undefined;
         }
 
@@ -135,7 +141,12 @@ function AppsFormField({
         }
 
         if (Array.isArray(value)) {
-            return value.map((v) => v.value);
+            return value.map(extractOptionValue);
+        }
+
+        // Handle AppSelectOption object
+        if (isAppSelectOption(value)) {
+            return value.value || '';
         }
 
         return value as string;
@@ -158,6 +169,7 @@ function AppsFormField({
                     secureTextEntry={field.subtype === 'password'}
                     disabled={Boolean(field.readonly)}
                     testID={testID}
+                    location={Screens.APPS_FORM}
                 />
             );
         }
@@ -182,6 +194,7 @@ function AppsFormField({
                     disabled={field.readonly}
                     isMultiselect={field.multiselect}
                     testID={testID}
+                    location={Screens.APPS_FORM}
                 />
             );
         }
@@ -197,6 +210,21 @@ function AppsFormField({
                     onChange={handleChange}
                     disabled={field.readonly}
                     testID={testID}
+                    location={Screens.APPS_FORM}
+                />
+            );
+        }
+        case AppFieldTypes.RADIO: {
+            return (
+                <RadioSetting
+                    label={displayName}
+                    helpText={field.description}
+                    errorText={errorText}
+                    options={field.options?.map(appSelectOptionToDialogOption)}
+                    onChange={handleChange}
+                    testID={testID}
+                    value={value as string}
+                    location={Screens.APPS_FORM}
                 />
             );
         }
@@ -211,11 +239,8 @@ function AppsFormField({
                 >
                     <Markdown
                         value={field.description}
-                        mentionKeys={[]}
                         disableAtMentions={true}
-                        location=''
-                        blockStyles={getMarkdownBlockStyles(theme)}
-                        textStyles={getMarkdownTextStyles(theme)}
+                        location={Screens.APPS_FORM}
                         baseTextStyle={style.markdownFieldText}
                         theme={theme}
                     />
@@ -225,6 +250,8 @@ function AppsFormField({
     }
 
     return null;
-}
+});
+
+AppsFormField.displayName = 'AppsFormField';
 
 export default AppsFormField;

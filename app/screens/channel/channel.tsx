@@ -1,32 +1,33 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {type LayoutChangeEvent, StyleSheet, View} from 'react-native';
+import React, {useCallback, useEffect, useState, useMemo} from 'react';
+import {Platform, DeviceEventEmitter, type LayoutChangeEvent, StyleSheet} from 'react-native';
+import {KeyboardProvider} from 'react-native-keyboard-controller';
 import {type Edge, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {storeLastViewedChannelIdAndServer, removeLastViewedChannelIdAndServer} from '@actions/app/global';
+import {fetchPostsForChannel} from '@actions/remote/post';
 import FloatingCallContainer from '@calls/components/floating_call_container';
 import FreezeScreen from '@components/freeze_screen';
-import PostDraft from '@components/post_draft';
-import {Screens} from '@constants';
-import {ACCESSORIES_CONTAINER_NATIVE_ID} from '@constants/post_draft';
+import {Events} from '@constants';
+import {useServerUrl} from '@context/server';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useChannelSwitch} from '@hooks/channel_switch';
 import {useIsTablet} from '@hooks/device';
 import {useDefaultHeaderHeight} from '@hooks/header';
-import {useKeyboardTrackingPaused} from '@hooks/keyboard_tracking';
 import {useTeamSwitch} from '@hooks/team_switch';
+import {useIsScreenVisible} from '@hooks/use_screen_visibility';
+import SecurityManager from '@managers/security_manager';
 import {popTopScreen} from '@screens/navigation';
 import EphemeralStore from '@store/ephemeral_store';
 
-import ChannelPostList from './channel_post_list';
+import ChannelContent from './channel_content';
 import ChannelHeader from './header';
 import useGMasDMNotice from './use_gm_as_dm_notice';
 
 import type PreferenceModel from '@typings/database/models/servers/preference';
 import type {AvailableScreens} from '@typings/screens/navigation';
-import type {KeyboardTrackingViewRef} from 'react-native-keyboard-tracking-view';
 
 type ChannelProps = {
     channelId: string;
@@ -34,16 +35,17 @@ type ChannelProps = {
     showJoinCallBanner: boolean;
     isInACall: boolean;
     isCallsEnabledInChannel: boolean;
+    groupCallsAllowed: boolean;
     showIncomingCalls: boolean;
     isTabletView?: boolean;
     dismissedGMasDMNotice: PreferenceModel[];
     currentUserId: string;
     channelType: ChannelType;
     hasGMasDMFeature: boolean;
+    includeBookmarkBar?: boolean;
+    includeChannelBanner: boolean;
+    scheduledPostCount: number;
 };
-
-const edges: Edge[] = ['left', 'right'];
-const trackKeyboardForScreens = [Screens.HOME, Screens.CHANNEL];
 
 const styles = StyleSheet.create({
     flex: {
@@ -57,12 +59,16 @@ const Channel = ({
     showJoinCallBanner,
     isInACall,
     isCallsEnabledInChannel,
+    groupCallsAllowed,
     showIncomingCalls,
     isTabletView,
     dismissedGMasDMNotice,
     channelType,
     currentUserId,
     hasGMasDMFeature,
+    includeBookmarkBar,
+    includeChannelBanner,
+    scheduledPostCount,
 }: ChannelProps) => {
     useGMasDMNotice(currentUserId, channelType, dismissedGMasDMNotice, hasGMasDMFeature);
     const isTablet = useIsTablet();
@@ -71,15 +77,36 @@ const Channel = ({
     const switchingTeam = useTeamSwitch();
     const switchingChannels = useChannelSwitch();
     const defaultHeight = useDefaultHeaderHeight();
-    const postDraftRef = useRef<KeyboardTrackingViewRef>(null);
     const [containerHeight, setContainerHeight] = useState(0);
+    const serverUrl = useServerUrl();
     const shouldRender = !switchingTeam && !switchingChannels && shouldRenderPosts && Boolean(channelId);
+    const isVisible = useIsScreenVisible(componentId);
+    const [isEmojiSearchFocused, setIsEmojiSearchFocused] = useState(false);
+
+    const safeAreaViewEdges: Edge[] = useMemo(() => {
+        if (isTablet) {
+            return ['left', 'right'];
+        }
+        if (isEmojiSearchFocused) {
+            return ['left', 'right'];
+        }
+        return ['left', 'right', 'bottom'];
+    }, [isTablet, isEmojiSearchFocused]);
+
     const handleBack = useCallback(() => {
         popTopScreen(componentId);
     }, [componentId]);
 
-    useKeyboardTrackingPaused(postDraftRef, channelId, trackKeyboardForScreens);
     useAndroidHardwareBackHandler(componentId, handleBack);
+
+    useEffect(() => {
+        const listener = DeviceEventEmitter.addListener(Events.POST_DELETED_FOR_CHANNEL, ({serverUrl: url, channelId: id}) => {
+            if (serverUrl === url && channelId === id) {
+                fetchPostsForChannel(serverUrl, channelId, false, true);
+            }
+        });
+        return () => listener.remove();
+    }, [serverUrl, channelId]);
 
     const marginTop = defaultHeight + (isTablet ? 0 : -insets.top);
     useEffect(() => {
@@ -115,42 +142,53 @@ const Channel = ({
             <SafeAreaView
                 style={styles.flex}
                 mode='margin'
-                edges={edges}
+                edges={safeAreaViewEdges}
                 testID='channel.screen'
                 onLayout={onLayout}
+                nativeID={componentId ? SecurityManager.getShieldScreenId(componentId) : undefined}
             >
                 <ChannelHeader
                     channelId={channelId}
                     componentId={componentId}
                     callsEnabledInChannel={isCallsEnabledInChannel}
+                    groupCallsAllowed={groupCallsAllowed}
                     isTabletView={isTabletView}
+                    shouldRenderBookmarks={shouldRender}
+                    shouldRenderChannelBanner={includeChannelBanner}
                 />
-                {shouldRender &&
-                <>
-                    <View style={[styles.flex, {marginTop}]}>
-                        <ChannelPostList
+                {Platform.OS === 'ios' ? (
+                    <KeyboardProvider>
+                        {shouldRender && (
+                            <ChannelContent
+                                channelId={channelId}
+                                marginTop={marginTop}
+                                scheduledPostCount={scheduledPostCount}
+                                containerHeight={containerHeight}
+                                enabled={isVisible || shouldRender}
+                                onEmojiSearchFocusChange={setIsEmojiSearchFocused}
+                            />
+                        )}
+                    </KeyboardProvider>
+                ) : (
+                    shouldRender && (
+                        <ChannelContent
                             channelId={channelId}
-                            nativeID={channelId}
+                            marginTop={marginTop}
+                            scheduledPostCount={scheduledPostCount}
+                            containerHeight={containerHeight}
+                            enabled={isVisible || shouldRender}
+                            onEmojiSearchFocusChange={setIsEmojiSearchFocused}
                         />
-                    </View>
-                    <PostDraft
-                        channelId={channelId}
-                        keyboardTracker={postDraftRef}
-                        scrollViewNativeID={channelId}
-                        accessoriesContainerID={ACCESSORIES_CONTAINER_NATIVE_ID}
-                        testID='channel.post_draft'
-                        containerHeight={containerHeight}
-                        isChannelScreen={true}
-                        canShowPostPriority={true}
-                    />
-                </>
-                }
-                {showFloatingCallContainer &&
+                    )
+                )}
+                {showFloatingCallContainer && shouldRender &&
                     <FloatingCallContainer
                         channelId={channelId}
                         showJoinCallBanner={showJoinCallBanner}
                         showIncomingCalls={showIncomingCalls}
                         isInACall={isInACall}
+                        includeBookmarkBar={includeBookmarkBar}
+                        includeChannelBanner={includeChannelBanner}
                     />
                 }
             </SafeAreaView>

@@ -13,12 +13,13 @@ class EditProfileScreen {
         closeButton: 'close.edit_profile.button',
         saveButton: 'edit_profile.save.button',
         scrollView: 'edit_profile.scroll_view',
-        firstNameInput: 'edit_profile_form.first_name.input',
-        firstNameInputDisabled: 'edit_profile_form.first_name.input.disabled',
-        lastNameInput: 'edit_profile_form.last_name.input',
-        lastNameInputDisabled: 'edit_profile_form.last_name.input.disabled',
+        firstNameInput: 'edit_profile_form.firstName.input',
+        firstNameInputDisabled: 'edit_profile_form.firstName.input.disabled',
+        lastNameInput: 'edit_profile_form.lastName.input',
+        lastNameInputDisabled: 'edit_profile_form.lastName.input.disabled',
         usernameInput: 'edit_profile_form.username.input',
         usernameInputDisabled: 'edit_profile_form.username.input.disabled',
+        usernameInputError: 'edit_profile_form.username.input.error',
         emailInput: 'edit_profile_form.email.input',
         emailInputDisabled: 'edit_profile_form.email.input.disabled',
         emailInputDescription: 'edit_profile_form.email.input.description',
@@ -38,6 +39,7 @@ class EditProfileScreen {
     lastNameInputDisabled = element(by.id(this.testID.lastNameInputDisabled));
     usernameInput = element(by.id(this.testID.usernameInput));
     usernameInputDisabled = element(by.id(this.testID.usernameInputDisabled));
+    usernameInputError = element(by.id(this.testID.usernameInputError));
     emailInput = element(by.id(this.testID.emailInput));
     emailInputDisabled = element(by.id(this.testID.emailInputDisabled));
     emailInputDescription = element(by.id(this.testID.emailInputDescription));

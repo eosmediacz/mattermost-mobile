@@ -1,36 +1,46 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import BottomSheetM, {BottomSheetBackdrop, type BottomSheetBackdropProps, type BottomSheetFooterProps} from '@gorhom/bottom-sheet';
+import BottomSheetM, {BottomSheetBackdrop, BottomSheetScrollView, BottomSheetView, type BottomSheetBackdropProps} from '@gorhom/bottom-sheet';
 import React, {type ReactNode, useCallback, useEffect, useMemo, useRef} from 'react';
-import {DeviceEventEmitter, type Handle, InteractionManager, Keyboard, type StyleProp, View, type ViewStyle} from 'react-native';
+import {DeviceEventEmitter, type Handle, InteractionManager, ScrollView, type StyleProp, View, type ViewStyle} from 'react-native';
+import {ReduceMotion, useReducedMotion, type WithSpringConfig} from 'react-native-reanimated';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {Events} from '@constants';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
+import {useBottomSheetListsFix} from '@hooks/bottom_sheet_lists_fix';
 import {useIsTablet} from '@hooks/device';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import SecurityManager from '@managers/security_manager';
 import {dismissModal} from '@screens/navigation';
 import {hapticFeedback} from '@utils/general';
+import {dismissKeyboard} from '@utils/keyboard';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 import Indicator from './indicator';
 
 import type {AvailableScreens} from '@typings/screens/navigation';
-import type {WithSpringConfig} from 'react-native-reanimated';
 
 export {default as BottomSheetButton, BUTTON_HEIGHT} from './button';
 export {default as BottomSheetContent, TITLE_HEIGHT} from './content';
+
+export const BOTTOM_SHEET_ANDROID_OFFSET = 12;
 
 type Props = {
     closeButtonId?: string;
     componentId: AvailableScreens;
     contentStyle?: StyleProp<ViewStyle>;
     initialSnapIndex?: number;
-    footerComponent?: React.FC<BottomSheetFooterProps>;
+    footerComponent?: React.FC<unknown>;
     renderContent: () => ReactNode;
     snapPoints?: Array<string | number>;
+    enableDynamicSizing?: boolean;
     testID?: string;
+    scrollable?: boolean;
+    keyboardBehavior?: 'extend' | 'fillParent' | 'interactive';
+    keyboardBlurBehavior?: 'none' | 'restore';
 }
 
 const PADDING_TOP_MOBILE = 20;
@@ -68,6 +78,9 @@ export const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
             borderTopWidth: 1,
             borderColor: changeOpacity(theme.centerChannelColor, 0.08),
         },
+        view: {
+            flex: 1,
+        },
     };
 });
 
@@ -89,13 +102,26 @@ const BottomSheet = ({
     renderContent,
     snapPoints = [1, '50%', '80%'],
     testID,
+    enableDynamicSizing = false,
+    scrollable = false,
+    keyboardBehavior = 'extend',
+    keyboardBlurBehavior = 'restore',
 }: Props) => {
+    const reducedMotion = useReducedMotion();
     const sheetRef = useRef<BottomSheetM>(null);
     const isTablet = useIsTablet();
+    const insets = useSafeAreaInsets();
     const theme = useTheme();
     const styles = getStyleSheet(theme);
     const interaction = useRef<Handle>();
     const timeoutRef = useRef<NodeJS.Timeout>();
+
+    const {enabled, panResponder} = useBottomSheetListsFix();
+
+    const animationConfigs = useMemo(() => ({
+        ...animatedConfig,
+        reduceMotion: reducedMotion ? ReduceMotion.Always : ReduceMotion.Never,
+    }), [reducedMotion]);
 
     useEffect(() => {
         interaction.current = InteractionManager.createInteractionHandle();
@@ -134,7 +160,7 @@ const BottomSheet = ({
         } else {
             close();
         }
-    }, []);
+    }, [close]);
 
     const handleChange = useCallback((index: number) => {
         timeoutRef.current = setTimeout(() => {
@@ -147,14 +173,14 @@ const BottomSheet = ({
         if (index <= 0) {
             close();
         }
-    }, []);
+    }, [close]);
 
     useAndroidHardwareBackHandler(componentId, handleClose);
     useNavButtonPressed(closeButtonId || '', componentId, close, [close]);
 
     useEffect(() => {
         hapticFeedback();
-        Keyboard.dismiss();
+        dismissKeyboard();
 
         return () => {
             if (timeoutRef.current) {
@@ -187,12 +213,47 @@ const BottomSheet = ({
         </View>
     );
 
+    const scrollViewProps = {
+        style: styles.view,
+        showsVerticalScrollIndicator: false,
+        scrollEnabled: enabled,
+        ...panResponder.panHandlers,
+    };
+
     if (isTablet) {
+        const FooterComponent = footerComponent;
+        let content = renderContainerContent();
+        if (scrollable) {
+            content = (
+                <ScrollView {...scrollViewProps}>
+                    {content}
+                </ScrollView>
+            );
+        }
         return (
-            <>
+            <View
+                style={styles.view}
+                nativeID={SecurityManager.getShieldScreenId(componentId)}
+            >
                 <View style={styles.separator}/>
+                {content}
+                {FooterComponent && (<FooterComponent/>)}
+            </View>
+        );
+    }
+
+    let content;
+    if (scrollable) {
+        content = (
+            <BottomSheetScrollView {...scrollViewProps}>
                 {renderContainerContent()}
-            </>
+            </BottomSheetScrollView>
+        );
+    } else {
+        content = (
+            <BottomSheetView style={styles.view}>
+                {renderContainerContent()}
+            </BottomSheetView>
         );
     }
 
@@ -205,16 +266,18 @@ const BottomSheet = ({
             backdropComponent={renderBackdrop}
             onAnimate={handleAnimationStart}
             onChange={handleChange}
-            animationConfigs={animatedConfig}
+            animationConfigs={animationConfigs}
             handleComponent={Indicator}
             style={styles.bottomSheet}
             backgroundStyle={bottomSheetBackgroundStyle}
             footerComponent={footerComponent}
-            keyboardBehavior='extend'
-            keyboardBlurBehavior='restore'
+            keyboardBehavior={keyboardBehavior}
+            keyboardBlurBehavior={keyboardBlurBehavior}
             onClose={close}
+            bottomInset={insets.bottom}
+            enableDynamicSizing={enableDynamicSizing}
         >
-            {renderContainerContent()}
+            {content}
         </BottomSheetM>
     );
 };

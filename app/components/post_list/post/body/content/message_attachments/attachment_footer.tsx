@@ -3,8 +3,9 @@
 
 import React from 'react';
 import {Text, View, Platform} from 'react-native';
-import FastImage from 'react-native-fast-image';
 
+import ExpoImage from '@components/expo_image';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 type Props = {
@@ -39,7 +40,8 @@ const AttachmentFooter = ({icon, text, theme}: Props) => {
     return (
         <View style={style.container}>
             {Boolean(icon) &&
-                <FastImage
+                <ExpoImage
+                    id={`attachment-footer-icon-${urlSafeBase64Encode(icon!)}`}
                     source={{uri: icon}}
                     key='footer_icon'
                     style={style.icon}

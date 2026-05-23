@@ -3,7 +3,7 @@
 
 import React, {useCallback} from 'react';
 import {useIntl} from 'react-intl';
-import {StyleSheet, View} from 'react-native';
+import {Platform, StyleSheet, View} from 'react-native';
 import Animated, {FadeInDown, FadeOutUp} from 'react-native-reanimated';
 
 import CompassIcon from '@components/compass_icon';
@@ -44,14 +44,14 @@ const QuickOptions = ({canCreateChannels, canJoinChannels, close}: Props) => {
         showModal(Screens.BROWSE_CHANNELS, title, {
             closeButton,
         });
-    }, [intl, theme]);
+    }, [close, intl, theme.sidebarHeaderTextColor]);
 
     const createNewChannel = useCallback(async () => {
         const title = intl.formatMessage({id: 'mobile.create_channel.title', defaultMessage: 'New channel'});
 
         await close();
         showModal(Screens.CREATE_OR_EDIT_CHANNEL, title);
-    }, [intl]);
+    }, [close, intl]);
 
     const openDirectMessage = useCallback(async () => {
         const title = intl.formatMessage({id: 'create_direct_message.title', defaultMessage: 'Create Direct Message'});
@@ -61,12 +61,12 @@ const QuickOptions = ({canCreateChannels, canJoinChannels, close}: Props) => {
         showModal(Screens.CREATE_DIRECT_MESSAGE, title, {
             closeButton,
         });
-    }, [intl, theme]);
+    }, [close, intl, theme.sidebarHeaderTextColor]);
 
     return (
         <Animated.View
             entering={FadeInDown.duration(200)}
-            exiting={FadeOutUp.duration(100)}
+            exiting={Platform.select({ios: FadeOutUp.duration(100)}) /* https://mattermost.atlassian.net/browse/MM-63814?focusedCommentId=178584 */}
             style={styles.container}
         >
             <Animated.View style={styles.wrapper}>

@@ -1,14 +1,17 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {NativeModules, useWindowDimensions, Platform} from 'react-native';
+import RNUtils from '@mattermost/rnutils';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {DeviceEventEmitter, Platform, View} from 'react-native';
+import {initialWindowMetrics, useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import {CaptionsEnabledContext} from '@calls/context';
-import {hasCaptions} from '@calls/utils';
+import {Events} from '@constants';
+import {ANDROID_GALLERY_FOOTER_PADDING, ANDROID_NAV_BAR_HEIGHT} from '@constants/gallery';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
-import {useIsTablet} from '@hooks/device';
+import {useIsTablet, useWindowDimensions} from '@hooks/device';
 import {useGalleryControls} from '@hooks/gallery';
+import SecurityManager from '@managers/security_manager';
 import {dismissOverlay, setScreensOrientation} from '@screens/navigation';
 import {freezeOtherScreens} from '@utils/gallery';
 
@@ -30,27 +33,16 @@ type Props = {
 const GalleryScreen = ({componentId, galleryIdentifier, hideActions, initialIndex, items}: Props) => {
     const dim = useWindowDimensions();
     const isTablet = useIsTablet();
+    const {bottom: bottomInset} = useSafeAreaInsets();
     const [localIndex, setLocalIndex] = useState(initialIndex);
-    const [captionsEnabled, setCaptionsEnabled] = useState<boolean[]>(new Array(items.length).fill(true));
-    const [captionsAvailable, setCaptionsAvailable] = useState<boolean[]>([]);
-    const {setControlsHidden, headerStyles, footerStyles} = useGalleryControls();
-    const dimensions = useMemo(() => ({width: dim.width, height: dim.height}), [dim.width]);
+
+    // Fallback for Android when SafeAreaContext returns 0 in overlays
+    const androidBottom = (initialWindowMetrics?.insets.bottom || ANDROID_NAV_BAR_HEIGHT) + ANDROID_GALLERY_FOOTER_PADDING;
+    const bottom = bottomInset || Platform.select({android: androidBottom, default: 0});
+    const {headerAndFooterHidden, hideHeaderAndFooter, headerStyles, footerStyles} = useGalleryControls(bottom);
     const galleryRef = useRef<GalleryRef>(null);
 
-    useEffect(() => {
-        const captions = items.reduce((acc, item) => {
-            acc.push(hasCaptions(item.postProps));
-            return acc;
-        }, [] as boolean[]);
-        setCaptionsAvailable(captions);
-    }, [items]);
-
-    const onCaptionsPressIdx = useCallback((idx: number) => {
-        const enabled = [...captionsEnabled];
-        enabled[idx] = !enabled[idx];
-        setCaptionsEnabled(enabled);
-    }, [captionsEnabled, setCaptionsEnabled]);
-    const onCaptionsPress = useCallback(() => onCaptionsPressIdx(localIndex), [localIndex, onCaptionsPressIdx]);
+    const containerStyle = dim;
 
     const onClose = useCallback(() => {
         // We keep the un freeze here as we want
@@ -67,22 +59,39 @@ const GalleryScreen = ({componentId, galleryIdentifier, hideActions, initialInde
         setScreensOrientation(isTablet);
         if (Platform.OS === 'ios' && !isTablet) {
             // We need both the navigation & the module
-            NativeModules.SplitView.lockPortrait();
+            RNUtils.lockPortrait();
         }
         freezeOtherScreens(false);
         requestAnimationFrame(async () => {
             dismissOverlay(componentId);
         });
-    }, [isTablet]);
+    }, [componentId, isTablet]);
 
     const onIndexChange = useCallback((index: number) => {
         setLocalIndex(index);
     }, []);
 
+    useEffect(() => {
+        const listener = DeviceEventEmitter.addListener(Events.CLOSE_GALLERY, () => {
+            onClose();
+        });
+
+        if (Platform.OS === 'android' && Platform.Version >= 34) {
+            RNUtils.setNavigationBarColor('black', true);
+        }
+
+        return () => {
+            listener.remove();
+        };
+    }, [onClose]);
+
     useAndroidHardwareBackHandler(componentId, close);
 
     return (
-        <CaptionsEnabledContext.Provider value={captionsEnabled}>
+        <View
+            style={containerStyle}
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
+        >
             <Header
                 index={localIndex}
                 onClose={onClose}
@@ -90,24 +99,22 @@ const GalleryScreen = ({componentId, galleryIdentifier, hideActions, initialInde
                 total={items.length}
             />
             <Gallery
+                headerAndFooterHidden={headerAndFooterHidden}
                 galleryIdentifier={galleryIdentifier}
                 initialIndex={initialIndex}
                 items={items}
                 onHide={close}
                 onIndexChange={onIndexChange}
-                onShouldHideControls={setControlsHidden}
+                hideHeaderAndFooter={hideHeaderAndFooter}
                 ref={galleryRef}
-                targetDimensions={dimensions}
+                targetDimensions={dim}
             />
             <Footer
                 hideActions={hideActions}
                 item={items[localIndex]}
                 style={footerStyles}
-                hasCaptions={captionsAvailable[localIndex]}
-                captionEnabled={captionsEnabled[localIndex]}
-                onCaptionsPress={onCaptionsPress}
             />
-        </CaptionsEnabledContext.Provider>
+        </View>
     );
 };
 

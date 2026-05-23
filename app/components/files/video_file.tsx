@@ -1,8 +1,9 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {getThumbnailAsync} from 'expo-video-thumbnails';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {StyleSheet, useWindowDimensions, View, NativeModules} from 'react-native';
+import {StyleSheet, useWindowDimensions, View} from 'react-native';
 
 import {updateLocalFile} from '@actions/local/file';
 import {buildFilePreviewUrl, buildFileUrl} from '@actions/remote/file';
@@ -10,14 +11,15 @@ import CompassIcon from '@components/compass_icon';
 import ProgressiveImage from '@components/progressive_image';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
+import {getServerCredentials} from '@init/credentials';
 import {fileExists} from '@utils/file';
 import {calculateDimensions} from '@utils/images';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 import FileIcon from './file_icon';
 
-import type {ResizeMode} from 'react-native-fast-image';
-const {createThumbnail} = NativeModules.MattermostManaged;
+import type {ImageContentFit} from 'expo-image';
 
 type Props = {
     index: number;
@@ -25,7 +27,7 @@ type Props = {
     forwardRef?: React.RefObject<unknown>;
     inViewPort?: boolean;
     isSingleImage?: boolean;
-    resizeMode?: ResizeMode;
+    contentFit?: ImageContentFit;
     wrapperWidth: number;
     updateFileForGallery?: (idx: number, file: FileInfo) => void;
 }
@@ -61,7 +63,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 
 const VideoFile = ({
     index, file, forwardRef, inViewPort, isSingleImage,
-    resizeMode = 'cover', wrapperWidth, updateFileForGallery,
+    contentFit = 'cover', wrapperWidth, updateFileForGallery,
 }: Props) => {
     const serverUrl = useServerUrl();
     const [failed, setFailed] = useState(false);
@@ -79,46 +81,6 @@ const VideoFile = ({
         return undefined;
     }, [dimensions.height, dimensions.width, video.height, video.width, wrapperWidth, isSingleImage]);
 
-    const getThumbnail = async () => {
-        const data = {...file};
-        try {
-            const exists = data.mini_preview ? await fileExists(data.mini_preview) : false;
-            if (!data.mini_preview || !exists) {
-                const videoUrl = buildFileUrl(serverUrl, data.id!);
-                if (videoUrl) {
-                    const {path: uri, height, width} = await createThumbnail({url: data.localPath || videoUrl, timeStamp: 2000});
-                    data.mini_preview = uri;
-                    data.height = height;
-                    data.width = width;
-                    updateLocalFile(serverUrl, data);
-                    if (mounted.current) {
-                        setVideo(data);
-                        setFailed(false);
-                    }
-                }
-            }
-        } catch (error) {
-            data.mini_preview = buildFilePreviewUrl(serverUrl, data.id!);
-            if (mounted.current) {
-                setVideo(data);
-            }
-        } finally {
-            if (!data.width) {
-                data.height = wrapperWidth;
-                data.width = wrapperWidth;
-            }
-            const {width: tw, height: th} = calculateDimensions(
-                data.height,
-                data.width,
-                dimensions.width - 60, // size of the gallery header probably best to set that as a constant
-                dimensions.height,
-            );
-            data.height = th;
-            data.width = tw;
-            updateFileForGallery?.(index, data);
-        }
-    };
-
     const handleError = useCallback(() => {
         setFailed(true);
     }, []);
@@ -131,9 +93,60 @@ const VideoFile = ({
     }, []);
 
     useEffect(() => {
-        if (inViewPort) {
-            getThumbnail();
+        if (!inViewPort) {
+            return;
         }
+
+        const getThumbnail = async () => {
+            const data = {...file};
+            try {
+                const exists = data.mini_preview ? await fileExists(data.mini_preview) : false;
+                if (!data.mini_preview || !exists) {
+                    const videoUrl = buildFileUrl(serverUrl, data.id!);
+                    if (videoUrl) {
+                        const cred = await getServerCredentials(serverUrl);
+                        const headers: Record<string, string> = {};
+                        if (cred?.token) {
+                            headers.Authorization = `Bearer ${cred.token}`;
+                        }
+                        const cachePath = urlSafeBase64Encode(serverUrl);
+                        const {uri, height, width} = await getThumbnailAsync(data.localPath || videoUrl, {time: 1000, headers, cachePath});
+                        data.mini_preview = uri;
+                        data.height = height;
+                        data.width = width;
+                        updateLocalFile(serverUrl, data);
+                        if (mounted.current) {
+                            setVideo(data);
+                            setFailed(false);
+                        }
+                    }
+                }
+            } catch (error) {
+                data.mini_preview = buildFilePreviewUrl(serverUrl, data.id!);
+                if (mounted.current) {
+                    setVideo(data);
+                }
+            } finally {
+                if (!data.width) {
+                    data.height = wrapperWidth;
+                    data.width = wrapperWidth;
+                }
+                const {width: tw, height: th} = calculateDimensions(
+                    data.height,
+                    data.width,
+                    dimensions.width - 60, // size of the gallery header probably best to set that as a constant
+                    dimensions.height,
+                );
+                data.height = th;
+                data.width = tw;
+                updateFileForGallery?.(index, data);
+            }
+        };
+
+        getThumbnail();
+
+        // Only get the thumbnail when the file changes or the file gets into the viewport
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file, inViewPort]);
 
     const imageProps = () => {
@@ -151,7 +164,8 @@ const VideoFile = ({
             forwardRef={forwardRef}
             style={[isSingleImage ? null : style.imagePreview, imageDimensions]}
             onError={handleError}
-            resizeMode={resizeMode}
+            contentFit={contentFit}
+            theme={theme}
             {...imageProps()}
         />
     );

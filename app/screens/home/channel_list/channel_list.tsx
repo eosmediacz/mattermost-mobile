@@ -18,7 +18,8 @@ import {Navigation as NavigationConstants, Screens} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import {useIsTablet} from '@hooks/device';
-import {resetToTeams, openToS} from '@screens/navigation';
+import PerformanceMetricsManager from '@managers/performance_metrics_manager';
+import {resetToTeams, openToS, showWatermarkOverlay, dismissWatermarkOverlay} from '@screens/navigation';
 import NavigationStore from '@store/navigation_store';
 import {isMainActivity} from '@utils/helpers';
 import {tryRunAppReview} from '@utils/reviews';
@@ -36,6 +37,7 @@ type ChannelProps = {
     hasTeams: boolean;
     hasMoreThanOneTeam: boolean;
     isLicensed: boolean;
+    isWatermarkEnabled: boolean;
     showToS: boolean;
     launchType: LaunchType;
     coldStart?: boolean;
@@ -108,7 +110,7 @@ const ChannelListScreen = (props: ChannelProps) => {
             }
         }
         return false;
-    }, [intl]);
+    }, [intl, navigation]);
 
     const animated = useAnimatedStyle(() => {
         if (!isFocused) {
@@ -135,7 +137,7 @@ const ChannelListScreen = (props: ChannelProps) => {
         if (!props.hasTeams) {
             resetToTeams();
         }
-    }, [Boolean(props.hasTeams)]);
+    }, [props.hasTeams]);
 
     useEffect(() => {
         const back = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
@@ -156,6 +158,10 @@ const ChannelListScreen = (props: ChannelProps) => {
         if (!props.hasCurrentUser || !props.currentUserId) {
             refetchCurrentUser(serverUrl, props.currentUserId);
         }
+
+    // - serverUrl is stable from useServerUrl hook
+    // - We only need to re-run when the current user state changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.currentUserId, props.hasCurrentUser]);
 
     // Init the rate app. Only run the effect on the first render if ToS is not open
@@ -167,7 +173,20 @@ const ChannelListScreen = (props: ChannelProps) => {
         if (!NavigationStore.isToSOpen()) {
             tryRunAppReview(props.launchType, props.coldStart);
         }
-    }, []);
+    }, [props.launchType, props.coldStart]);
+
+    useEffect(() => {
+        if (props.isWatermarkEnabled) {
+            showWatermarkOverlay();
+        } else {
+            dismissWatermarkOverlay();
+        }
+    }, [props.isWatermarkEnabled]);
+
+    useEffect(() => {
+        PerformanceMetricsManager.finishLoad('HOME', serverUrl);
+        PerformanceMetricsManager.measureTimeToInteraction();
+    }, [serverUrl]);
 
     return (
         <>
@@ -196,7 +215,7 @@ const ChannelListScreen = (props: ChannelProps) => {
                             moreThanOneTeam={props.hasMoreThanOneTeam}
                             hasChannels={props.hasChannels}
                         />
-                        {isTablet &&
+                        {isTablet && props.hasChannels &&
                             <AdditionalTabletView/>
                         }
                         {props.showIncomingCalls && !isTablet &&

@@ -3,16 +3,16 @@
 
 import React from 'react';
 import {useIntl} from 'react-intl';
-import {Text, View} from 'react-native';
-import MathView from 'react-native-math-view';
+import {Platform, Text, View, type DimensionValue} from 'react-native';
 
 import ErrorBoundary from '@components/markdown/error_boundary';
+import MathView from '@components/math_view';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
 type Props = {
     content: string;
-    maxMathWidth: number | string;
+    maxMathWidth: DimensionValue;
     theme: Theme;
 }
 
@@ -23,7 +23,8 @@ type MathViewErrorProps = {
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         mathStyle: {
-            marginVertical: 3,
+            marginVertical: Platform.select({ios: 1.5, default: 0}),
+            alignItems: 'center',
             color: theme.centerChannelColor,
         },
         viewStyle: {

@@ -13,10 +13,13 @@ export const MM_TABLES = {
         CATEGORY: 'Category',
         CATEGORY_CHANNEL: 'CategoryChannel',
         CHANNEL: 'Channel',
+        CHANNEL_BOOKMARK: 'ChannelBookmark',
         CHANNEL_INFO: 'ChannelInfo',
         CHANNEL_MEMBERSHIP: 'ChannelMembership',
         CONFIG: 'Config',
         CUSTOM_EMOJI: 'CustomEmoji',
+        CUSTOM_PROFILE_FIELD: 'CustomProfileField',
+        CUSTOM_PROFILE_ATTRIBUTE: 'CustomProfileAttribute',
         DRAFT: 'Draft',
         FILE: 'File',
         GROUP: 'Group',
@@ -32,6 +35,7 @@ export const MM_TABLES = {
         PREFERENCE: 'Preference',
         REACTION: 'Reaction',
         ROLE: 'Role',
+        SCHEDULED_POST: 'ScheduledPost',
         SYSTEM: 'System',
         TEAM: 'Team',
         TEAM_CHANNEL_HISTORY: 'TeamChannelHistory',
@@ -72,6 +76,9 @@ export const SYSTEM_IDENTIFIERS = {
     SESSION_EXPIRATION: 'sessionExpiration',
     TEAM_HISTORY: 'teamHistory',
     WEBSOCKET: 'WebSocket',
+    PLAYBOOKS_VERSION: 'playbooks_version',
+    AGENTS_VERSION: 'agents_version',
+    LAST_BOR_POST_CLEANUP_RUN: 'lastBoRPostCleanupRun',
 };
 
 export const GLOBAL_IDENTIFIERS = {
@@ -83,6 +90,7 @@ export const GLOBAL_IDENTIFIERS = {
     LAST_VIEWED_CHANNEL: 'lastViewedChannel',
     LAST_VIEWED_THREAD: 'lastViewedThread',
     PUSH_DISABLED_ACK: 'pushDisabledAck',
+    CACHE_MIGRATION: 'cacheMigration',
 };
 
 export enum OperationType {

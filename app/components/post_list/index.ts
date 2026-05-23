@@ -6,6 +6,7 @@ import React from 'react';
 import {of as of$} from 'rxjs';
 import {switchMap} from 'rxjs/operators';
 
+import {observeIsChannelAutotranslated} from '@queries/servers/channel';
 import {queryAllCustomEmojis} from '@queries/servers/custom_emoji';
 import {observeSavedPostsByIds, observeIsPostAcknowledgementsEnabled} from '@queries/servers/post';
 import {observeConfigBooleanValue} from '@queries/servers/system';
@@ -18,11 +19,15 @@ import PostList from './post_list';
 import type {WithDatabaseArgs} from '@typings/database/database';
 import type PostModel from '@typings/database/models/servers/post';
 
-const enhancedWithoutPosts = withObservables([], ({database}: WithDatabaseArgs) => {
+type OwnProps = {
+    channelId: string;
+} & WithDatabaseArgs;
+
+const enhancedWithoutPosts = withObservables(['channelId'], ({database, channelId}: OwnProps) => {
     const currentUser = observeCurrentUser(database);
+    const isChannelAutotranslated = observeIsChannelAutotranslated(database, channelId);
     return {
         appsEnabled: observeConfigBooleanValue(database, 'FeatureFlagAppsEnabled'),
-        isTimezoneEnabled: observeConfigBooleanValue(database, 'ExperimentalTimezone'),
         currentTimezone: currentUser.pipe((switchMap((user) => of$(getTimezone(user?.timezone || null))))),
         currentUserId: currentUser.pipe((switchMap((user) => of$(user?.id)))),
         currentUsername: currentUser.pipe((switchMap((user) => of$(user?.username)))),
@@ -30,6 +35,7 @@ const enhancedWithoutPosts = withObservables([], ({database}: WithDatabaseArgs) 
             switchMap((customEmojis) => of$(mapCustomEmojiNames(customEmojis))),
         ),
         isPostAcknowledgementEnabled: observeIsPostAcknowledgementsEnabled(database),
+        isChannelAutotranslated,
     };
 });
 

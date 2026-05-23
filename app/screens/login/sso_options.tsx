@@ -1,33 +1,31 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {Image, type ImageSource} from 'expo-image';
 import React from 'react';
 import {useIntl} from 'react-intl';
-import {Image, type ImageSourcePropType, Text, View} from 'react-native';
-import Button from 'react-native-button';
+import {StyleSheet, View} from 'react-native';
 
-import CompassIcon from '@components/compass_icon';
+import Button from '@components/button';
 import {Sso} from '@constants';
-import {buttonBackgroundStyle} from '@utils/buttonStyles';
-import {makeStyleSheetFromTheme, changeOpacity} from '@utils/theme';
 
 type SsoInfo = {
     text: string;
-    imageSrc?: ImageSourcePropType;
+    imageSrc?: ImageSource;
     compassIcon?: string;
 };
 
 type Props = {
     goToSso: (ssoType: string) => void;
+    intuneAuthService?: string;
+    isIntuneEnabled?: boolean;
     ssoOnly: boolean;
     ssoOptions: SsoWithOptions;
     theme: Theme;
 }
 
-const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
+const SsoOptions = ({goToSso, intuneAuthService, isIntuneEnabled, ssoOnly, ssoOptions, theme}: Props) => {
     const {formatMessage} = useIntl();
-    const styles = getStyleSheet(theme);
-    const styleButtonBackground = buttonBackgroundStyle(theme, 'lg', 'primary');
 
     const getSsoButtonOptions = ((ssoType: string): SsoInfo => {
         const sso: SsoInfo = {} as SsoInfo;
@@ -35,7 +33,11 @@ const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
         switch (ssoType) {
             case Sso.SAML:
                 sso.text = options.text || formatMessage({id: 'mobile.login_options.saml', defaultMessage: 'SAML'});
-                sso.compassIcon = 'lock';
+                if (isIntuneEnabled && intuneAuthService?.toLocaleLowerCase() === ssoType.toLocaleLowerCase()) {
+                    sso.imageSrc = require('@assets/images/Icon_EntraID.png');
+                } else {
+                    sso.compassIcon = 'lock';
+                }
                 break;
             case Sso.GITLAB:
                 sso.text = formatMessage({id: 'mobile.login_options.gitlab', defaultMessage: 'GitLab'});
@@ -46,8 +48,8 @@ const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
                 sso.imageSrc = require('@assets/images/Icon_Google.png');
                 break;
             case Sso.OFFICE365:
-                sso.text = formatMessage({id: 'mobile.login_options.office365', defaultMessage: 'Office 365'});
-                sso.imageSrc = require('@assets/images/Icon_Office.png');
+                sso.text = formatMessage({id: 'mobile.login_options.entraid', defaultMessage: 'Entra ID'});
+                sso.imageSrc = require('@assets/images/Icon_EntraID.png');
                 break;
             case Sso.OPENID:
                 sso.text = options.text || formatMessage({id: 'mobile.login_options.openid', defaultMessage: 'Open ID'});
@@ -59,16 +61,9 @@ const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
         return sso;
     });
 
-    const enabledSSOs = Object.keys(ssoOptions).filter(
-        (ssoType: string) => ssoOptions[ssoType].enabled,
-    );
-
-    let styleViewContainer;
-    let styleButtonContainer;
-    if (enabledSSOs.length === 2 && !ssoOnly) {
-        styleViewContainer = styles.containerAsRow;
-        styleButtonContainer = styles.buttonContainer;
-    }
+    const enabledSSOs = Object.keys(ssoOptions).filter((ssoType: string) => ssoOptions[ssoType].enabled);
+    const styleViewContainer = enabledSSOs.length === 2 && !ssoOnly ? styles.containerAsRow : undefined;
+    const styleButtonWrapper = enabledSSOs.length === 2 && !ssoOnly ? styles.buttonWrapper : undefined;
 
     const componentArray = [];
     for (const ssoType of enabledSSOs) {
@@ -78,37 +73,28 @@ const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
         };
 
         componentArray.push(
-            <Button
+            <View
+                style={styleButtonWrapper}
                 key={ssoType}
-                onPress={handlePress}
-                containerStyle={[styleButtonBackground, styleButtonContainer, styles.button]}
             >
-                {imageSrc && (
-                    <Image
-                        key={'image' + ssoType}
-                        source={imageSrc}
-                        style={styles.logoStyle}
-                    />
-                )}
-                {compassIcon &&
-                <CompassIcon
-                    name={compassIcon}
-                    size={16}
-                    color={theme.centerChannelColor}
+                <Button
+                    key={ssoType}
+                    onPress={handlePress}
+                    size='lg'
+                    theme={theme}
+                    iconName={compassIcon}
+                    emphasis='secondary'
+                    iconComponent={imageSrc ? (
+                        <Image
+                            key={'image' + ssoType}
+                            source={imageSrc}
+                            style={styles.logoStyle}
+                            cachePolicy='memory'
+                        />
+                    ) : undefined}
+                    text={text}
                 />
-                }
-                <View
-                    style={styles.buttonTextContainer}
-                >
-                    <Text
-                        key={ssoType}
-                        style={styles.buttonText}
-                        testID={text}
-                    >
-                        {text}
-                    </Text>
-                </View>
-            </Button>,
+            </View>,
         );
     }
 
@@ -119,41 +105,23 @@ const SsoOptions = ({goToSso, ssoOnly, ssoOptions, theme}: Props) => {
     );
 };
 
-const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
+const styles = StyleSheet.create({
     container: {
         marginVertical: 24,
+        gap: 8,
     },
     containerAsRow: {
         flexDirection: 'row',
         alignItems: 'center',
     },
-    buttonContainer: {
-        width: '48%',
-        marginRight: 8,
-    },
-    button: {
-        marginVertical: 4,
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: changeOpacity(theme.centerChannelColor, 0.16),
-    },
-    buttonTextContainer: {
-        color: theme.centerChannelColor,
-        flexDirection: 'row',
-        marginLeft: 9,
-    },
-    buttonText: {
-        color: theme.centerChannelColor,
-        fontFamily: 'OpenSans-SemiBold',
-        fontSize: 16,
-        lineHeight: 18,
-        top: 2,
+    buttonWrapper: {
+        flex: 1,
     },
     logoStyle: {
         height: 18,
         marginRight: 5,
         width: 18,
     },
-}));
+});
 
 export default SsoOptions;

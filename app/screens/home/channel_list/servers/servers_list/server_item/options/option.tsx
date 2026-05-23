@@ -33,7 +33,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
         width: OPTION_SIZE,
     },
     text: {
-        color: theme.sidebarText,
+        color: theme.buttonColor,
         ...typography('Body', 75, 'SemiBold'),
     },
 }));
@@ -43,8 +43,8 @@ const ServerOption = ({color, icon, onPress, positionX, progress, style, testID,
     const styles = getStyleSheet(theme);
     const containerStyle = useMemo(() => {
         return [styles.container, {backgroundColor: color}, style];
-    }, [color, style]);
-    const centeredStyle = useMemo(() => [styles.container, styles.centered], []);
+    }, [color, style, styles]);
+    const centeredStyle = useMemo(() => [styles.container, styles.centered], [styles]);
 
     const trans = progress.interpolate({
         inputRange: [0, 1],

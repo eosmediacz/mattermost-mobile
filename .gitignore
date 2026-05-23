@@ -10,6 +10,7 @@ env.d.ts
 *.apk
 *.aab
 *.ipa
+.tsbuildinfo.precommit
 
 */**/compass-icons.ttf
 
@@ -117,3 +118,22 @@ launch.json
 
 # Temporary files created by Metro to check the health of the file watcher
 .metro-health-check*
+
+libraries/**/**/build
+libraries/**/**/.build
+
+# Android sounds
+android/app/src/main/res/raw/*
+.aider*
+
+# Intune submodule (private repository - internal builds only)
+# Track submodule reference but ignore content
+libraries/@mattermost/intune/*
+!libraries/@mattermost/intune/.gitkeep
+
+# Prevent committing Intune module in node_modules
+node_modules/@mattermost/intune
+# Claude Code
+.claude/settings.local.json
+.codex/
+.cursor/

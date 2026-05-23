@@ -1,9 +1,77 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {Image} from 'expo-image';
+import {DeviceEventEmitter} from 'react-native';
+
+import {Navigation, Screens} from '@constants';
+import {PostTypes} from '@constants/post';
 import DatabaseManager from '@database/manager';
 import {getDraft} from '@queries/servers/drafts';
+import {getCurrentChannelId, getCurrentTeamId, setCurrentTeamAndChannelId} from '@queries/servers/system';
+import {addChannelToTeamHistory} from '@queries/servers/team';
+import {goToScreen, popTo} from '@screens/navigation';
+import NavigationStore from '@store/navigation_store';
+import {getExtensionFromMime} from '@utils/file';
+import {isTablet} from '@utils/helpers';
 import {logError} from '@utils/log';
+import {removeImageProxyForKey} from '@utils/markdown';
+import {urlSafeBase64Encode} from '@utils/security';
+import {isParsableUrl} from '@utils/url';
+
+import type {DraftScreenTab} from '@constants/draft';
+import type {Model} from '@nozbe/watermelondb';
+
+type goToScreenParams = {
+    initialTab?: DraftScreenTab;
+}
+
+export const switchToGlobalDrafts = async (serverUrl: string, teamId?: string, initialTab?: DraftScreenTab, prepareRecordsOnly = false) => {
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const models: Model[] = [];
+
+        let teamIdToUse = teamId;
+        if (!teamId) {
+            teamIdToUse = await getCurrentTeamId(database);
+        }
+
+        if (!teamIdToUse) {
+            throw new Error('no team to switch to');
+        }
+
+        const currentChannelId = await getCurrentChannelId(database);
+        await setCurrentTeamAndChannelId(operator, teamIdToUse, currentChannelId);
+        const history = await addChannelToTeamHistory(operator, teamIdToUse, Screens.GLOBAL_DRAFTS, true);
+        models.push(...history);
+
+        if (!prepareRecordsOnly) {
+            await operator.batchRecords(models, 'switchToGlobalDrafts');
+        }
+        const params: goToScreenParams = {};
+
+        const isDraftAlreadyInNavigationStack = NavigationStore.getScreensInStack().includes(Screens.GLOBAL_DRAFTS);
+        if (isDraftAlreadyInNavigationStack) {
+            popTo(Screens.GLOBAL_DRAFTS);
+            return {models};
+        }
+
+        params.initialTab = initialTab;
+
+        const isTabletDevice = isTablet();
+        if (isTabletDevice) {
+            DeviceEventEmitter.emit(Navigation.NAVIGATION_HOME, Screens.GLOBAL_DRAFTS, params);
+        } else {
+            goToScreen(Screens.GLOBAL_DRAFTS, '', params, {topBar: {visible: false}});
+        }
+
+        return {models};
+    } catch (error) {
+        logError('Failed switchToGlobalDrafts', error);
+
+        return {error};
+    }
+};
 
 export async function updateDraftFile(serverUrl: string, channelId: string, rootId: string, file: FileInfo, prepareRecordsOnly = false) {
     try {
@@ -23,6 +91,7 @@ export async function updateDraftFile(serverUrl: string, channelId: string, root
         newFiles[i] = file;
         draft.prepareUpdate((d) => {
             d.files = newFiles;
+            d.updateAt = Date.now();
         });
 
         if (!prepareRecordsOnly) {
@@ -54,6 +123,7 @@ export async function removeDraftFile(serverUrl: string, channelId: string, root
         } else {
             draft.prepareUpdate((d) => {
                 d.files = draft.files.filter((v, index) => index !== i);
+                d.updateAt = Date.now();
             });
         }
 
@@ -81,6 +151,7 @@ export async function updateDraftMessage(serverUrl: string, channelId: string, r
                 channel_id: channelId,
                 root_id: rootId,
                 message,
+                update_at: Date.now(),
             };
 
             return operator.handleDraft({drafts: [newDraft], prepareRecordsOnly});
@@ -95,6 +166,7 @@ export async function updateDraftMessage(serverUrl: string, channelId: string, r
         } else {
             draft.prepareUpdate((d) => {
                 d.message = message;
+                d.updateAt = Date.now();
             });
         }
 
@@ -119,6 +191,7 @@ export async function addFilesToDraft(serverUrl: string, channelId: string, root
                 root_id: rootId,
                 files,
                 message: '',
+                update_at: Date.now(),
             };
 
             return operator.handleDraft({drafts: [newDraft], prepareRecordsOnly});
@@ -126,6 +199,7 @@ export async function addFilesToDraft(serverUrl: string, channelId: string, root
 
         draft.prepareUpdate((d) => {
             d.files = [...draft.files, ...files];
+            d.updateAt = Date.now();
         });
 
         if (!prepareRecordsOnly) {
@@ -167,6 +241,7 @@ export async function updateDraftPriority(serverUrl: string, channelId: string, 
                 metadata: {
                     priority: postPriority,
                 },
+                update_at: Date.now(),
             };
 
             return operator.handleDraft({drafts: [newDraft], prepareRecordsOnly});
@@ -177,6 +252,7 @@ export async function updateDraftPriority(serverUrl: string, channelId: string, 
                 ...d.metadata,
                 priority: postPriority,
             };
+            d.updateAt = Date.now();
         });
 
         if (!prepareRecordsOnly) {
@@ -188,4 +264,146 @@ export async function updateDraftPriority(serverUrl: string, channelId: string, 
         logError('Failed updateDraftPriority', error);
         return {error};
     }
+}
+
+export async function updateDraftBoRConfig(serverUrl: string, channelId: string, rootId: string, postBoRConfig: PostBoRConfig, prepareRecordsOnly = false) {
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const draft = await getDraft(database, channelId, rootId);
+        if (!draft) {
+            const newDraft: Draft = {
+                channel_id: channelId,
+                root_id: rootId,
+                update_at: Date.now(),
+                metadata: {
+                    borConfig: postBoRConfig,
+                },
+            };
+
+            if (postBoRConfig.enabled) {
+                newDraft.type = PostTypes.BURN_ON_READ;
+            } else {
+                newDraft.type = '';
+            }
+
+            return operator.handleDraft({drafts: [newDraft], prepareRecordsOnly});
+        }
+
+        draft?.prepareUpdate((d) => {
+            d.metadata = {
+                ...d.metadata,
+                borConfig: postBoRConfig,
+            };
+
+            if (postBoRConfig.enabled) {
+                d.type = PostTypes.BURN_ON_READ;
+            } else {
+                d.type = '';
+            }
+        });
+
+        if (!prepareRecordsOnly) {
+            await operator.batchRecords([draft], 'updateDraftBoRConfig');
+        }
+
+        return {draft};
+    } catch (error) {
+        logError('Failed updateDraftBoRConfig', error);
+        return {error};
+    }
+}
+
+export async function updateDraftMarkdownImageMetadata({
+    serverUrl,
+    channelId,
+    rootId,
+    imageMetadata,
+    prepareRecordsOnly = false,
+}: {
+    serverUrl: string;
+    channelId: string;
+    rootId: string;
+    imageMetadata: Dictionary<PostImage | undefined>;
+    prepareRecordsOnly?: boolean;
+}) {
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const draft = await getDraft(database, channelId, rootId);
+        if (draft) {
+            draft.prepareUpdate((d) => {
+                d.metadata = {
+                    ...d.metadata,
+                    images: imageMetadata,
+                };
+                d.updateAt = Date.now();
+            });
+            if (!prepareRecordsOnly) {
+                await operator.batchRecords([draft], 'updateDraftImageMetadata');
+            }
+        }
+        return {draft};
+    } catch (error) {
+        logError('Failed updateDraftMarkdownImageMetadata', error);
+        return {error};
+    }
+}
+
+async function getImageMetadata(serverUrl: string, url: string) {
+    let format;
+    const sourceKey = removeImageProxyForKey(url);
+    const cacheKey = `uid-${urlSafeBase64Encode(sourceKey)}`;
+    const image = await Image.loadAsync({uri: url, cacheKey, cachePath: urlSafeBase64Encode(serverUrl)});
+
+    if (image.mediaType) {
+        format = getExtensionFromMime(image.mediaType);
+    } else {
+        /**
+         * Regex Explanation:
+         * \.       - Matches a literal period (e.g., before "jpg").
+         * (\w+)    - Captures the file extension (letters, digits, or underscores).
+         * (?=\?|$) - Ensures the extension is followed by "?" or the end of the URL.
+         *
+         * * Example Matches:
+         * "https://example.com/image.jpg"         -> Matches "jpg"
+         * "https://example.com/image.png?size=1"  -> Matches "png"
+         * "https://example.com/file"              -> No match (no file extension).
+         */
+        const match = url.match(/\.(\w+)(?=\?|$)/);
+        if (match) {
+            format = match[1];
+        }
+    }
+
+    return {
+        height: image.height,
+        width: image.width,
+        format,
+        frame_count: 1,
+        url,
+    };
+}
+
+export async function parseMarkdownImages(serverUrl: string, markdown: string, imageMetadata: Dictionary<PostImage | undefined>) {
+    // Regex break down
+    // ([a-zA-Z][a-zA-Z\d+\-.]*):\/\/ - Matches any valid scheme (protocol), such as http, https, ftp, mailto, file, etc.
+    // [^\s()<>]+ - Matches the main part of the URL, excluding spaces, parentheses, and angle brackets.
+    // (?:\([^\s()<>]+\))* - Allows balanced parentheses inside the URL path or query parameters.
+    // !\[.*?\]\((...)\) - Matches an image markdown syntax ![alt text](image url)
+    const imageRegex = /!\[.*?\]\((([a-zA-Z][a-zA-Z\d+\-.]*):\/\/[^\s()<>]+(?:\([^\s()<>]+\))*)\)/g;
+    const matches = Array.from(markdown.matchAll(imageRegex));
+
+    const promises = matches.reduce<Array<Promise<PostImage & {url: string}>>>((result, match) => {
+        const imageUrl = match[1];
+        if (isParsableUrl(imageUrl)) {
+            result.push(getImageMetadata(serverUrl, imageUrl));
+        }
+        return result;
+    }, []);
+
+    const metadataArray = await Promise.all(promises);
+    metadataArray.forEach((metadata) => {
+        if (metadata) {
+            imageMetadata[metadata.url] = metadata;
+        }
+    });
 }

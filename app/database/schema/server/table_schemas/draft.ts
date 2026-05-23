@@ -15,5 +15,7 @@ export default tableSchema({
         {name: 'message', type: 'string'},
         {name: 'root_id', type: 'string', isIndexed: true},
         {name: 'metadata', type: 'string', isOptional: true},
+        {name: 'update_at', type: 'number'},
+        {name: 'type', type: 'string', isOptional: true},
     ],
 });

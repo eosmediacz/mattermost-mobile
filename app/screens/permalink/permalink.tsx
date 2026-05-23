@@ -2,14 +2,17 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {Alert, Text, TouchableOpacity, View} from 'react-native';
+import {defineMessages, useIntl} from 'react-intl';
+import {Alert, Platform, Text, TouchableOpacity, View} from 'react-native';
+import {KeyboardProvider} from 'react-native-keyboard-controller';
 import Animated from 'react-native-reanimated';
 import {type Edge, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {getPosts} from '@actions/local/post';
 import {fetchChannelById, joinChannel, switchToChannelById} from '@actions/remote/channel';
-import {fetchPostById, fetchPostsAround, fetchPostThread} from '@actions/remote/post';
+import {fetchPostById, fetchPostInfo, fetchPostsAround, fetchPostThread} from '@actions/remote/post';
 import {addCurrentUserToTeam, fetchTeamByName, removeCurrentUserFromTeam} from '@actions/remote/team';
+import Button from '@components/button';
 import CompassIcon from '@components/compass_icon';
 import FormattedText from '@components/formatted_text';
 import Loading from '@components/loading';
@@ -17,31 +20,40 @@ import PostList from '@components/post_list';
 import {Screens} from '@constants';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
-import DatabaseManager from '@database/manager';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import {useIsTablet} from '@hooks/device';
+import {usePreventDoubleTap} from '@hooks/utils';
+import SecurityManager from '@managers/security_manager';
 import {getChannelById, getMyChannel} from '@queries/servers/channel';
 import {dismissModal} from '@screens/navigation';
-import {buttonBackgroundStyle, buttonTextStyle} from '@utils/buttonStyles';
 import {closePermalink} from '@utils/permalink';
-import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 
 import PermalinkError from './permalink_error';
 
+import type {Database} from '@nozbe/watermelondb';
 import type ChannelModel from '@typings/database/models/servers/channel';
 import type PostModel from '@typings/database/models/servers/post';
 
 type Props = {
     channel?: ChannelModel;
+    database: Database;
     rootId?: string;
     teamName?: string;
     isTeamMember?: boolean;
     currentTeamId: string;
     isCRTEnabled: boolean;
+    hasPostInfoEndpoint: boolean;
     postId: PostModel['id'];
 }
+
+const messages = defineMessages({
+    joinTeamErrorTitle: {id: 'permalink.error.join_team.title', defaultMessage: 'Error joining the team'},
+    joinTeamErrorMessage: {id: 'permalink.error.join_team.message', defaultMessage: 'There was an error trying to join the team'},
+    joinChannelErrorTitle: {id: 'permalink.error.join_channel.title', defaultMessage: 'Error joining the channel'},
+    joinChannelErrorMessage: {id: 'permalink.error.join_channel.message', defaultMessage: 'There was an error trying to join the channel'},
+});
 
 const edges: Edge[] = ['left', 'right', 'top'];
 
@@ -83,14 +95,19 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     titleContainer: {
         alignItems: 'center',
         flex: 1,
+        minWidth: 0,
         paddingRight: 40,
     },
     title: {
         color: theme.centerChannelColor,
+        flexShrink: 1,
+        maxWidth: '100%',
         ...typography('Heading', 300),
     },
     description: {
         color: theme.centerChannelColor,
+        flexShrink: 1,
+        maxWidth: '100%',
         ...typography('Body', 100),
     },
     postList: {
@@ -102,11 +119,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
         alignItems: 'center',
     },
     footer: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'row',
         padding: 20,
-        width: '100%',
         borderBottomLeftRadius: 12,
         borderBottomRightRadius: 12,
         borderTopWidth: 1,
@@ -129,13 +142,16 @@ const idExtractor = (item: Post) => {
 
 function Permalink({
     channel,
+    database,
     rootId,
     isCRTEnabled,
+    hasPostInfoEndpoint,
     postId,
     teamName,
     isTeamMember,
     currentTeamId,
 }: Props) {
+    const intl = useIntl();
     const [posts, setPosts] = useState<PostModel[]>([]);
     const [loading, setLoading] = useState(true);
     const theme = useTheme();
@@ -155,6 +171,12 @@ function Permalink({
     useEffect(() => {
         (async () => {
             if (channelId) {
+                const myChannel = await getMyChannel(database, channelId);
+                if (!myChannel) {
+                    setChannelId(undefined);
+                    return;
+                }
+
                 let data;
                 const loadThreadPosts = isCRTEnabled && rootId;
                 if (loadThreadPosts) {
@@ -176,16 +198,29 @@ function Permalink({
                 return;
             }
 
-            const database = DatabaseManager.serverDatabases[serverUrl]?.database;
-            if (!database) {
-                setError({unreachable: true});
-                setLoading(false);
-                return;
+            // Try getPostInfo first (GET /posts/{id}/info, available since server v7.0).
+            // Returns channel/team metadata without requiring membership, so we can
+            // show the join UI without speculatively joining the team first.
+            if (hasPostInfoEndpoint) {
+                const {postInfo} = await fetchPostInfo(serverUrl, postId);
+                if (postInfo && !postInfo.has_joined_channel) {
+                    setError({
+                        privateChannel: postInfo.channel_type === 'P',
+                        needsTeamJoin: !postInfo.has_joined_team && postInfo.team_id !== '',
+                        channelId: postInfo.channel_id,
+                        channelName: postInfo.channel_display_name,
+                        teamId: postInfo.team_id || currentTeamId,
+                        teamName: postInfo.team_display_name,
+                        privateTeam: postInfo.team_type === 'I',
+                    });
+                    setLoading(false);
+                    return;
+                }
             }
 
-            // If a team is provided, try to join the team, but do not fail here, to take into account:
-            // - Wrong team name
-            // - DMs/GMs
+            // Fallback for old servers (getPostInfo unavailable) or when the user
+            // already has channel access (has_joined_channel === true).
+            // This path speculatively joins the team before fetching the post.
             let joinedTeam: Team | undefined;
             if (teamName && !isTeamMember) {
                 const fetchData = await fetchTeamByName(serverUrl, teamName, true);
@@ -262,6 +297,12 @@ function Permalink({
             });
             setLoading(false);
         })();
+
+    // - serverUrl is stable from useServerUrl hook (doesn't need to be in deps)
+    // - postId, isTeamMember, currentTeamId are props that don't change for a given permalink screen
+    // - setError, setLoading, setChannelId, setPosts are stable setState functions
+    // - We only need to re-run when channelId, rootId, isCRTEnabled, or teamName changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [channelId, rootId, isCRTEnabled, teamName]);
 
     const handleClose = useCallback(() => {
@@ -270,30 +311,48 @@ function Permalink({
         }
         dismissModal({componentId: Screens.PERMALINK});
         closePermalink();
-    }, [error]);
+    }, [error?.joinedTeam, error?.teamId, serverUrl]);
 
     useAndroidHardwareBackHandler(Screens.PERMALINK, handleClose);
 
-    const handlePress = useCallback(preventDoubleTap(() => {
+    const handlePress = usePreventDoubleTap(useCallback(() => {
         if (channel) {
             switchToChannelById(serverUrl, channel.id, channel.teamId);
         }
-    }), [channel?.id, channel?.teamId]);
+    }, [channel, serverUrl]));
 
-    const handleJoin = useCallback(preventDoubleTap(async () => {
+    const handleJoin = usePreventDoubleTap(useCallback(async () => {
         setLoading(true);
         setError(undefined);
         if (error?.teamId && error.channelId) {
+            if (error.needsTeamJoin) {
+                const {error: teamError} = await addCurrentUserToTeam(serverUrl, error.teamId);
+                if (teamError) {
+                    Alert.alert(
+                        intl.formatMessage(messages.joinTeamErrorTitle),
+                        intl.formatMessage(messages.joinTeamErrorMessage),
+                    );
+                    setLoading(false);
+                    setError(error);
+                    return;
+                }
+            }
             const {error: joinError} = await joinChannel(serverUrl, error.teamId, error.channelId);
             if (joinError) {
-                Alert.alert('Error joining the channel', 'There was an error trying to join the channel');
+                if (error.needsTeamJoin) {
+                    removeCurrentUserFromTeam(serverUrl, error.teamId);
+                }
+                Alert.alert(
+                    intl.formatMessage(messages.joinChannelErrorTitle),
+                    intl.formatMessage(messages.joinChannelErrorMessage),
+                );
                 setLoading(false);
                 setError(error);
                 return;
             }
             setChannelId(error.channelId);
         }
-    }), [error, serverUrl]);
+    }, [error, intl, serverUrl]));
 
     let content;
     if (loading) {
@@ -312,8 +371,8 @@ function Permalink({
                 handleJoin={handleJoin}
             />
         );
-    } else {
-        content = (
+    } else if (channel) {
+        const postListContent = (
             <>
                 <View style={style.postList}>
                     <PostList
@@ -323,28 +382,30 @@ function Permalink({
                         location={Screens.PERMALINK}
                         lastViewedAt={0}
                         shouldShowJoinLeaveMessages={false}
-                        channelId={channel!.id}
+                        channelId={channel.id}
                         rootId={rootId}
                         testID='permalink.post_list'
-                        nativeID={Screens.PERMALINK}
                         highlightPinnedOrSaved={false}
                     />
                 </View>
                 <View style={style.footer}>
-                    <TouchableOpacity
-                        style={[buttonBackgroundStyle(theme, 'lg', 'primary'), {width: '100%'}]}
+                    <Button
+                        size='lg'
+                        text={intl.formatMessage({id: 'mobile.search.jump', defaultMessage: 'Jump to recent messages'})}
+                        theme={theme}
                         onPress={handlePress}
                         testID='permalink.jump_to_recent_messages.button'
-                    >
-                        <FormattedText
-                            testID='permalink.search.jump'
-                            id='mobile.search.jump'
-                            defaultMessage='Jump to recent messages'
-                            style={buttonTextStyle(theme, 'lg', 'primary')}
-                        />
-                    </TouchableOpacity>
+                    />
                 </View>
             </>
+        );
+
+        content = Platform.OS === 'ios' ? (
+            <KeyboardProvider>
+                {postListContent}
+            </KeyboardProvider>
+        ) : (
+            postListContent
         );
     }
 
@@ -353,6 +414,7 @@ function Permalink({
         <SafeAreaView
             style={containerStyle}
             testID='permalink.screen'
+            nativeID={SecurityManager.getShieldScreenId(Screens.PERMALINK)}
             edges={edges}
         >
             <Animated.View style={style.wrapper}>
@@ -372,6 +434,7 @@ function Permalink({
                             <FormattedText
                                 id='thread.header.thread'
                                 defaultMessage='Thread'
+                                numberOfLines={1}
                                 style={style.title}
                             />
                         ) : (
@@ -388,6 +451,7 @@ function Permalink({
                                 ellipsizeMode='tail'
                                 id='thread.header.thread_in'
                                 defaultMessage='in {channelName}'
+                                numberOfLines={1}
                                 values={{
                                     channelName: channel?.displayName,
                                 }}

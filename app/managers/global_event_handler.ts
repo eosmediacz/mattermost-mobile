@@ -1,38 +1,53 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Alert, DeviceEventEmitter, Linking, NativeEventEmitter, NativeModules} from 'react-native';
+import RNUtils, {type SplitViewResult} from '@mattermost/rnutils';
+import {defineMessages} from 'react-intl';
+import {Alert, DeviceEventEmitter, Linking, NativeEventEmitter} from 'react-native';
 import semver from 'semver';
 
 import {switchToChannelById} from '@actions/remote/channel';
-import LocalConfig from '@assets/config.json';
+import {batchTeamThreadSync} from '@actions/remote/thread';
 import {Device, Events, Sso} from '@constants';
 import {MIN_REQUIRED_VERSION} from '@constants/supported_server';
 import DatabaseManager from '@database/manager';
-import {DEFAULT_LOCALE, getTranslations, t} from '@i18n';
+import {DEFAULT_LOCALE, getTranslations} from '@i18n';
 import {getServerCredentials} from '@init/credentials';
-import * as analytics from '@managers/analytics';
 import {getActiveServerUrl} from '@queries/app/servers';
 import {queryTeamDefaultChannel} from '@queries/servers/channel';
 import {getCommonSystemValues} from '@queries/servers/system';
 import {getTeamChannelHistory} from '@queries/servers/team';
 import {setScreensOrientation} from '@screens/navigation';
-import {alertInvalidDeepLink, handleDeepLink} from '@utils/deep_link';
+import {alertInvalidDeepLink, parseAndHandleDeepLink} from '@utils/deep_link';
 import {getIntlShape} from '@utils/general';
 
 type LinkingCallbackArg = {url: string};
 
-const {SplitView} = NativeModules;
-const splitViewEmitter = new NativeEventEmitter(SplitView);
+const splitViewEmitter = new NativeEventEmitter(RNUtils);
 
-class GlobalEventHandler {
+const messages = defineMessages({
+    serverUpgradeTitle: {
+        id: 'mobile.server_upgrade.title',
+        defaultMessage: 'Server upgrade required',
+    },
+    serverUpgradeDescription: {
+        id: 'mobile.server_upgrade.description',
+        defaultMessage: '\nA server upgrade is required to use the Mattermost app. Please ask your System Administrator for details.\n',
+    },
+    serverUpgradeButton: {
+        id: 'mobile.server_upgrade.button',
+        defaultMessage: 'OK',
+    },
+});
+
+class GlobalEventHandlerSingleton {
     JavascriptAndNativeErrorHandler: jsAndNativeErrorHandler | undefined;
 
     constructor() {
         DeviceEventEmitter.addListener(Events.SERVER_VERSION_CHANGED, this.onServerVersionChanged);
-        DeviceEventEmitter.addListener(Events.CONFIG_CHANGED, this.onServerConfigChanged);
         splitViewEmitter.addListener('SplitViewChanged', this.onSplitViewChanged);
         Linking.addEventListener('url', this.onDeepLink);
+        DeviceEventEmitter.addListener(Events.POST_DELETED_FOR_CHANNEL, this.onPostDeletedForChannel);
     }
 
     init = () => {
@@ -40,15 +55,8 @@ class GlobalEventHandler {
         this.JavascriptAndNativeErrorHandler?.initializeErrorHandling();
     };
 
-    configureAnalytics = async (serverUrl: string, config?: ClientConfig) => {
-        if (serverUrl && config?.DiagnosticsEnabled === 'true' && config?.DiagnosticId && LocalConfig.RudderApiKey) {
-            let client = analytics.get(serverUrl);
-            if (!client) {
-                client = analytics.create(serverUrl);
-            }
-
-            await client.init(config);
-        }
+    onPostDeletedForChannel = async ({serverUrl, teamId}: {serverUrl: string; teamId: string}) => {
+        batchTeamThreadSync(serverUrl, teamId);
     };
 
     onDeepLink = async (event: LinkingCallbackArg) => {
@@ -57,15 +65,11 @@ class GlobalEventHandler {
         }
 
         if (event.url) {
-            const {error} = await handleDeepLink(event.url);
+            const {error} = await parseAndHandleDeepLink(event.url, undefined, undefined, true);
             if (error) {
                 alertInvalidDeepLink(getIntlShape(DEFAULT_LOCALE));
             }
         }
-    };
-
-    onServerConfigChanged = ({serverUrl, config}: {serverUrl: string; config: ClientConfig}) => {
-        this.configureAnalytics(serverUrl, config);
     };
 
     onServerVersionChanged = async ({serverUrl, serverVersion}: {serverUrl: string; serverVersion?: string}) => {
@@ -77,10 +81,10 @@ class GlobalEventHandler {
         if (version) {
             if (semver.valid(version) && semver.lt(version, MIN_REQUIRED_VERSION)) {
                 Alert.alert(
-                    translations[t('mobile.server_upgrade.title')],
-                    translations[t('mobile.server_upgrade.description')],
+                    translations[messages.serverUpgradeTitle.id],
+                    translations[messages.serverUpgradeDescription.id],
                     [{
-                        text: translations[t('mobile.server_upgrade.button')],
+                        text: translations[messages.serverUpgradeButton.id],
                         onPress: () => this.serverUpgradeNeeded(serverUrl),
                     }],
                     {cancelable: false},
@@ -130,4 +134,5 @@ class GlobalEventHandler {
     };
 }
 
-export default new GlobalEventHandler();
+const GlobalEventHandler = new GlobalEventHandlerSingleton();
+export default GlobalEventHandler;

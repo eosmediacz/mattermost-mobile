@@ -7,8 +7,9 @@ import {Text, TouchableOpacity, View} from 'react-native';
 import {fetchAndSwitchToThread} from '@actions/remote/thread';
 import CompassIcon from '@components/compass_icon';
 import {SEARCH} from '@constants/screens';
+import {useKeyboardAnimationContext} from '@context/keyboard_animation';
 import {useServerUrl} from '@context/server';
-import {preventDoubleTap} from '@utils/tap';
+import {usePreventDoubleTap} from '@hooks/utils';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
 import type PostModel from '@typings/database/models/servers/post';
@@ -24,13 +25,11 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         replyWrapper: {
             flex: 1,
-            justifyContent: 'flex-end',
         },
         replyIconContainer: {
             flexDirection: 'row',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             justifyContent: 'flex-end',
-            minWidth: 40,
             paddingTop: 2,
             flex: 1,
         },
@@ -46,11 +45,14 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 const HeaderReply = ({commentCount, location, post, theme}: HeaderReplyProps) => {
     const style = getStyleSheet(theme);
     const serverUrl = useServerUrl();
+    const {blurAndDismissKeyboard} = useKeyboardAnimationContext();
 
-    const onPress = useCallback(preventDoubleTap(() => {
+    const onPress = usePreventDoubleTap(useCallback(async () => {
+        await blurAndDismissKeyboard();
+
         const rootId = post.rootId || post.id;
         fetchAndSwitchToThread(serverUrl, rootId);
-    }), [serverUrl]);
+    }, [blurAndDismissKeyboard, post.id, post.rootId, serverUrl]));
 
     return (
         <View

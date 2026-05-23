@@ -11,7 +11,10 @@ function installPodsM1() {
 }
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  if [[ $(uname -p) == 'arm' ]]; then
+  if [ "$INTUNE_ENABLED" = "1" ]; then
+    echo "🔐 INTUNE_ENABLED detected"
+    npm run intune:init
+  elif [[ $(uname -p) == 'arm' ]]; then
     installPodsM1
   else
     installPods
@@ -34,4 +37,14 @@ if [ -z "$ASSETS" ]; then
     exit 1
 else
     echo "Generating app assets"
+fi
+
+SOUNDS="assets/sounds"
+if [ -z "$SOUNDS" ]; then
+    echo "Sound assets not found"
+    exit 1
+else
+    echo "Copying sound assets for bundling"
+    mkdir -p "android/app/src/main/res/raw/"
+    cp $SOUNDS/* "android/app/src/main/res/raw/"
 fi

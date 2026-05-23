@@ -1,23 +1,25 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback} from 'react';
+import {type ImageSource, type ImageStyle} from 'expo-image';
+import React from 'react';
 import {type StyleProp, Text, type TextStyle, TouchableHighlight, View, type ViewStyle} from 'react-native';
-import FastImage, {type ImageStyle, type Source} from 'react-native-fast-image';
 
 import CompassIcon from '@components/compass_icon';
+import ExpoImage from '@components/expo_image';
 import {useTheme} from '@context/theme';
-import {preventDoubleTap} from '@utils/tap';
+import {usePreventDoubleTap} from '@hooks/utils';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 import {isValidUrl} from '@utils/url';
 
 type SlideUpPanelProps = {
     destructive?: boolean;
-    leftIcon?: string | Source;
+    leftIcon?: string | ImageSource;
     leftImageStyles?: StyleProp<ImageStyle>;
     leftIconStyles?: StyleProp<TextStyle>;
-    rightIcon?: string | Source;
+    rightIcon?: string | ImageSource;
     rightImageStyles?: StyleProp<ImageStyle>;
     rightIconStyles?: StyleProp<TextStyle>;
     onPress: () => void;
@@ -86,7 +88,7 @@ const SlideUpPanelItem = ({
     const {image: leftImage, iconStyle: leftIconStyle} = useImageAndStyle(leftIcon, leftImageStyles, leftIconStyles, destructive);
     const {image: rightImage, iconStyle: rightIconStyle} = useImageAndStyle(rightIcon, rightImageStyles, rightIconStyles, destructive);
 
-    const handleOnPress = useCallback(preventDoubleTap(onPress, 500), []);
+    const handleOnPress = usePreventDoubleTap(onPress);
 
     return (
         <TouchableHighlight
@@ -110,7 +112,7 @@ const SlideUpPanelItem = ({
     );
 };
 
-const useImageAndStyle = (icon: string | Source | undefined, imageStyles: StyleProp<ImageStyle>, iconStyles: StyleProp<TextStyle>, destructive: boolean) => {
+const useImageAndStyle = (icon: string | ImageSource | undefined, imageStyles: StyleProp<ImageStyle>, iconStyles: StyleProp<TextStyle>, destructive: boolean) => {
     const theme = useTheme();
     const style = getStyleSheet(theme);
 
@@ -122,7 +124,8 @@ const useImageAndStyle = (icon: string | Source | undefined, imageStyles: StyleP
                 const imageStyle: StyleProp<ImageStyle> = [imageStyles];
                 imageStyle.push({width: 24, height: 24});
                 image = (
-                    <FastImage
+                    <ExpoImage
+                        id={`slide-up-panel-item-${urlSafeBase64Encode(icon.uri)}`}
                         source={icon}
                         style={imageStyle}
                     />

@@ -17,7 +17,7 @@ import {
     PostOptionsScreen,
     ThreadScreen,
 } from '@support/ui/screen';
-import {timeouts, wait} from '@support/utils';
+import {isIos, timeouts, wait} from '@support/utils';
 import {expect} from 'detox';
 
 class ChannelScreen {
@@ -41,8 +41,41 @@ class ChannelScreen {
         introUnfavoriteAction: 'channel_post_list.intro_options.unfavorite.action',
         introChannelInfoAction: 'channel_post_list.intro_options.channel_info.action',
         toastMessage: 'toast.message',
+        postPriorityPicker: 'channel.post_draft.quick_actions.post_priority_action',
+        postPriorityImportantMessage: 'post_priority_picker_item.important',
+        postPriorityUrgentMessage: 'post_priority_picker_item.urgent',
+        postPriorityRequestAck: 'post_priority_picker_item.requested_ack.toggled.false.button',
+        postPriorityPersistentNotification: 'post_priority_picker_item.persistent_notifications.toggled.undefined.button',
+        scheduledPostTooltipCloseButton: 'scheduled_post.tooltip.close.button',
+        scheduledPostTooltipCloseButtonAdminAccount: 'scheduled_post_tutorial_tooltip.close',
+        scheduleMessageTomorrowOption: 'post_priority_picker_item.scheduledPostOptionTomorrow',
+        scheduleMessageOnMondayOption: 'post_priority_picker_item.scheduledPostOptionMonday',
+        scheduledPostOptionNextMonday: 'post_priority_picker_item.scheduledPostOptionNextMonday',
+        scheduledPostOptionTomorrowSelected: 'post_priority_picker_item.scheduledPostOptionTomorrow.selected',
+        scheduledPostOptionMondaySelected: 'post_priority_picker_item.scheduledPostOptionMonday.selected',
+        scheduledPostOptionNextMondaySelected: 'post_priority_picker_item.scheduledPostOptionNextMonday.selected',
+        clickOnScheduledMessageButton: 'scheduled_post_create_button',
+        scheduledDraftInfoInChannel: 'scheduled_post_header.scheduled_post_indicator',
+        scheduledDraftTooltipText: 'scheduled_post.tooltip.description',
     };
 
+    scheduleDraftInforMessage = element(by.text('Type a message and long press the send button to schedule it for a later time.'));
+    scheduledDraftTooltipText = element(by.id(this.testID.scheduledDraftTooltipText));
+    scheduledDraftInfoInChannel = element(by.id(this.testID.scheduledDraftInfoInChannel));
+    clickOnScheduledMessageButton = element(by.id(this.testID.clickOnScheduledMessageButton));
+    scheduledPostOptionTomorrowSelected = element(by.id(this.testID.scheduledPostOptionTomorrowSelected));
+    scheduledPostOptionMondaySelected = element(by.id(this.testID.scheduledPostOptionMondaySelected));
+    scheduledPostOptionNextMonday = element(by.id(this.testID.scheduledPostOptionNextMonday));
+    scheduledPostOptionNextMondaySelected = element(by.id(this.testID.scheduledPostOptionNextMondaySelected));
+    scheduleMessageTomorrowOption = element(by.id(this.testID.scheduleMessageTomorrowOption));
+    scheduleMessageOnMondayOption = element(by.id(this.testID.scheduleMessageOnMondayOption));
+    scheduledPostTooltipCloseButton = element(by.id(this.testID.scheduledPostTooltipCloseButton));
+    scheduledPostTooltipCloseButtonAdminAccount = element(by.id(this.testID.scheduledPostTooltipCloseButtonAdminAccount));
+    postPriorityPersistentNotification = element(by.id(this.testID.postPriorityPersistentNotification));
+    postPriorityUrgentMessage = element(by.id(this.testID.postPriorityUrgentMessage));
+    postPriorityRequestAck = element(by.id(this.testID.postPriorityRequestAck));
+    postPriorityImportantMessage = element(by.id(this.testID.postPriorityImportantMessage));
+    postPriorityPicker = element(by.id(this.testID.postPriorityPicker));
     channelScreen = element(by.id(this.testID.channelScreen));
     channelQuickActionsButton = element(by.id(this.testID.channelQuickActionsButton));
     favoriteQuickAction = element(by.id(this.testID.favoriteQuickAction));
@@ -61,6 +94,7 @@ class ChannelScreen {
     introUnfavoriteAction = element(by.id(this.testID.introUnfavoriteAction));
     introChannelInfoAction = element(by.id(this.testID.introChannelInfoAction));
     toastMessage = element(by.id(this.testID.toastMessage));
+    applyPostPriority = element(by.text('Apply'));
 
     // convenience props
     backButton = NavigationHeader.backButton;
@@ -109,17 +143,36 @@ class ChannelScreen {
         return this.postList.getPostMessageAtIndex(index);
     };
 
-    toBeVisible = async () => {
+    toBeVisible = async (timeout = timeouts.TEN_SEC) => {
         await wait(timeouts.ONE_SEC);
-        await waitFor(this.channelScreen).toExist().withTimeout(timeouts.TEN_SEC);
+        await waitFor(this.channelScreen).toExist().withTimeout(timeout);
 
         return this.channelScreen;
     };
 
-    open = async (categoryKey: string, channelName: string) => {
-        // # Open channel screen
-        await ChannelListScreen.getChannelItemDisplayName(categoryKey, channelName).tap();
+    dismissScheduledPostTooltip = async () => {
+        // Try to close scheduled post tooltip if it exists (try both regular and admin account versions)
+        try {
+            await waitFor(this.scheduledPostTooltipCloseButton).toBeVisible().withTimeout(timeouts.FOUR_SEC);
+            await this.scheduledPostTooltipCloseButton.tap();
+            await wait(timeouts.HALF_SEC);
+        } catch {
+            // Try admin account version
+            try {
+                await waitFor(this.scheduledPostTooltipCloseButtonAdminAccount).toBeVisible().withTimeout(timeouts.FOUR_SEC);
+                await this.scheduledPostTooltipCloseButtonAdminAccount.tap();
+                await wait(timeouts.HALF_SEC);
+            } catch {
+                // Tooltip not visible, continue
+            }
+        }
+    };
 
+    open = async (category: string, channelName: any) => {
+        // # Open channel screen
+        await wait(timeouts.FOUR_SEC);
+        await ChannelListScreen.getChannelItemDisplayName(category, channelName).tap();
+        await this.dismissScheduledPostTooltip();
         return this.toBeVisible();
     };
 
@@ -153,7 +206,7 @@ class ChannelScreen {
 
     openPostOptionsFor = async (postId: string, text: string) => {
         const {postListPostItem} = this.getPostListPostItem(postId, text);
-        await expect(postListPostItem).toBeVisible();
+        await waitFor(postListPostItem).toBeVisible().withTimeout(timeouts.TEN_SEC);
 
         // # Open post options
         await postListPostItem.longPress();
@@ -172,15 +225,28 @@ class ChannelScreen {
     postMessage = async (message: string) => {
         // # Post message
         await this.postInput.tap();
-        await this.postInput.replaceText(message);
+        await this.postInput.clearText();
+        await this.postInput.replaceText(`${message}\n`);
         await this.tapSendButton();
+        await wait(timeouts.TWO_SEC);
+    };
+
+    enterMessageToSchedule = async (message: string) => {
+        await this.postInput.tap();
+        await this.postInput.clearText();
+        await this.postInput.replaceText(message);
     };
 
     tapSendButton = async () => {
-        // # Tap send button
+        // # wait for Send button to be enabled
+        await waitFor(this.sendButton).toBeVisible().withTimeout(timeouts.TWO_SEC);
         await this.sendButton.tap();
         await expect(this.sendButton).not.toExist();
-        await expect(this.sendButtonDisabled).toBeVisible();
+    };
+
+    longPressSendButton = async () => {
+        // # Long press send button
+        await this.sendButton.longPress();
     };
 
     hasPostMessage = async (postId: string, postMessage: string) => {
@@ -192,6 +258,100 @@ class ChannelScreen {
         await expect(
             this.getPostMessageAtIndex(index),
         ).toHaveText(postMessage);
+    };
+
+    openPostPriorityPicker = async () => {
+        await this.postPriorityPicker.tap();
+    };
+
+    clickPostPriorityImportantMessage = async () => {
+        await this.postPriorityImportantMessage.tap();
+    };
+
+    clickPostPriorityUrgentMessage = async () => {
+        await this.postPriorityUrgentMessage.tap();
+    };
+
+    toggleRequestAckPostpriority = async () => {
+        await this.postPriorityRequestAck.tap();
+    };
+
+    togglePersistentNotificationPostpriority = async () => {
+        await this.postPriorityPersistentNotification.tap();
+    };
+
+    applyPostPrioritySettings = async () => {
+        await this.applyPostPriority.tap();
+    };
+
+    scheduleMessageForTomorrow = async () => {
+        await this.scheduleMessageTomorrowOption.tap();
+        await expect(this.scheduledPostOptionTomorrowSelected).toBeVisible();
+    };
+
+    scheduleMessageForMonday = async () => {
+        await this.scheduleMessageOnMondayOption.tap();
+        await expect(this.scheduledPostOptionMondaySelected).toBeVisible();
+    };
+
+    scheduleMessageForNextMonday = async () => {
+        await this.scheduledPostOptionNextMonday.tap();
+        await expect(this.scheduledPostOptionNextMondaySelected).toBeVisible();
+    };
+
+    clickOnScheduledMessage = async () => {
+        await this.clickOnScheduledMessageButton.tap();
+        await waitFor(this.clickOnScheduledMessageButton).not.toBeVisible().withTimeout(timeouts.FOUR_SEC);
+    };
+
+    /*
+    * Verify the message is scheduled and user can see Info in channel or thread
+    * @param {boolean} thread - true if the message is scheduled in thread
+    * @returns {Promise<void>}
+    */
+    verifyScheduledDraftInfoInChannel = async (thread = false) => {
+        await expect(this.scheduledDraftInfoInChannel).toBeVisible();
+        await expect(this.scheduledDraftInfoInChannel).toHaveText(`1 scheduled message in ${thread ? 'thread' : 'channel'}. See all.`);
+    };
+
+    closeScheduledMessageTooltip = async () => {
+        if (isIos()) {
+            await waitFor(this.scheduledDraftTooltipText).toBeVisible().withTimeout(timeouts.TEN_SEC);
+            await this.scheduledDraftTooltipText.tap();
+        } else {
+            // The page re-renders and then opens the tooltip again. Wait for the tooltip to be stable and then tap it.
+            await wait(timeouts.TEN_SEC);
+            await this.scheduleDraftInforMessage.tap();
+        }
+    };
+
+    assertPostMessageEdited = async (
+        postId: string,
+        updatedMessage: string,
+        locator: 'channel_page' | 'pinned_page' | 'thread_page' | 'search_page' | 'saved_messages_page' | 'recent_mentions_page' = 'channel_page',
+    ) => {
+        const locatorTestIDs = {
+            channel_page: 'channel.post_list.post',
+            pinned_page: 'pinned_messages.post_list.post',
+            search_page: 'search_results.post_list.post',
+            thread_page: 'thread.post_list.post',
+            saved_messages_page: 'saved_messages.post_list.post',
+            recent_mentions_page: 'recent_mentions.post_list.post',
+        };
+
+        const postItemTestID = locatorTestIDs[locator];
+        const postItemElement = `${postItemTestID}.${postId}`;
+        const postItemMatcher = by.id(postItemElement);
+
+        // Escape special characters in the message for regex
+        const escapedMessage = updatedMessage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        // Match text that contains the updated message followed by "Edited" (with possible spacing/icon)
+        const completeTextPattern = new RegExp(`${escapedMessage}.*Edited`, 'i');
+        const completeTextMatcher = by.text(completeTextPattern).withAncestor(postItemMatcher);
+
+        // Wait for the text containing both message and "Edited" to be visible
+        await waitFor(element(completeTextMatcher)).toBeVisible().withTimeout(timeouts.TEN_SEC);
     };
 }
 

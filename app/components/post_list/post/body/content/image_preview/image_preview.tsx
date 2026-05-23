@@ -2,7 +2,8 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Animated, StyleSheet, TouchableWithoutFeedback, View} from 'react-native';
+import {StyleSheet, TouchableWithoutFeedback, View} from 'react-native';
+import Animated from 'react-native-reanimated';
 
 import {getRedirectLocation} from '@actions/remote/general';
 import FileIcon from '@components/files/file_icon';
@@ -14,9 +15,10 @@ import useDidUpdate from '@hooks/did_update';
 import {useGalleryItem} from '@hooks/gallery';
 import {lookupMimeType} from '@utils/file';
 import {openGalleryAtIndex} from '@utils/gallery';
-import {generateId} from '@utils/general';
 import {calculateDimensions, getViewPortWidth, isGifTooLarge} from '@utils/images';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity} from '@utils/theme';
+import {secureGetFromRecord} from '@utils/types';
 import {extractFilenameFromUrl, isImageLink, isValidUrl} from '@utils/url';
 
 import type {GalleryItemType} from '@typings/screens/gallery';
@@ -51,10 +53,13 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
     const galleryIdentifier = `${postId}-ImagePreview-${location}`;
     const [error, setError] = useState(false);
     const serverUrl = useServerUrl();
-    const fileId = useRef(generateId('uid')).current;
+    const fileId = useRef<string | null>(null);
     const [imageUrl, setImageUrl] = useState(expandedLink || link);
+    if (fileId.current === null) {
+        fileId.current = `uid-${urlSafeBase64Encode(imageUrl)}`;
+    }
     const isTablet = useIsTablet();
-    const imageProps = metadata?.images?.[link];
+    const imageProps = secureGetFromRecord(metadata?.images, link);
     const dimensions = calculateDimensions(imageProps?.height, imageProps?.width, layoutWidth || getViewPortWidth(isReplyPost, isTablet));
 
     const onError = useCallback(() => {
@@ -63,7 +68,7 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
 
     const onPress = () => {
         const item: GalleryItemType = {
-            id: fileId,
+            id: fileId.current || '',
             postId,
             uri: imageUrl,
             width: imageProps?.width || 0,
@@ -72,6 +77,7 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
             mime_type: lookupMimeType(imageUrl) || 'image/png',
             type: 'image',
             lastPictureUpdate: 0,
+            cacheKey: fileId.current || '',
         };
         openGalleryAtIndex(galleryIdentifier, 0, [item]);
     };
@@ -86,6 +92,9 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
         if (!isImageLink(link) && expandedLink === undefined) {
             getRedirectLocation(serverUrl, link);
         }
+
+        // Only check if we need to get the redirect location when the link changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [link]);
 
     useDidUpdate(() => {
@@ -100,6 +109,9 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
         if (expandedLink && expandedLink !== imageUrl) {
             setImageUrl(expandedLink);
         }
+
+        // Only re-set the image url when the expanded link changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [expandedLink]);
 
     if (error || !isValidUrl(expandedLink || link) || isGifTooLarge(imageProps)) {
@@ -121,11 +133,12 @@ const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, m
                     <Animated.View testID={`ImagePreview-${fileId}`}>
                         <ProgressiveImage
                             forwardRef={ref}
-                            id={fileId}
+                            id={fileId.current}
                             imageUri={imageUrl}
                             onError={onError}
-                            resizeMode='contain'
+                            contentFit='contain'
                             style={[style.image, {width: dimensions.width, height: dimensions.height}]}
+                            theme={theme}
                         />
                     </Animated.View>
                 </TouchableWithoutFeedback>

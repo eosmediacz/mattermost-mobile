@@ -3,24 +3,41 @@
 
 import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
 import {of as of$, combineLatest} from 'rxjs';
-import {map, switchMap} from 'rxjs/operators';
+import {map, mergeMap, switchMap} from 'rxjs/operators';
 
 import {General, Permissions, Preferences} from '@constants';
 import {getDisplayNamePreferenceAsBool} from '@helpers/api/preference';
 import {observeChannel} from '@queries/servers/channel';
+import {observeCustomProfileAttributesByUserId, observeCustomProfileFields} from '@queries/servers/custom_profile';
 import {queryDisplayNamePreferences} from '@queries/servers/preference';
 import {observeCanManageChannelMembers, observePermissionForChannel} from '@queries/servers/role';
 import {observeConfigBooleanValue, observeCurrentTeamId, observeCurrentUserId} from '@queries/servers/system';
 import {observeTeammateNameDisplay, observeCurrentUser, observeUser, observeUserIsChannelAdmin, observeUserIsTeamAdmin} from '@queries/servers/user';
-import {isSystemAdmin} from '@utils/user';
+import {isDefaultChannel} from '@utils/channel';
+import {isSystemAdmin, sortCustomProfileAttributes, convertToAttributesMap, convertProfileAttributesToCustomAttributes, getUserIdFromChannelName} from '@utils/user';
 
 import UserProfile from './user_profile';
 
+import type {CustomAttribute} from '@typings/api/custom_profile_attributes';
 import type {WithDatabaseArgs} from '@typings/database/database';
 
 type EnhancedProps = WithDatabaseArgs & {
     userId: string;
     channelId?: string;
+}
+
+type DMChannelInfo = {
+    name: string;
+    type: string;
+};
+
+export function isDirectMessageWithViewedUser(channel: DMChannelInfo|undefined, currentUserId: string, viewedUserId: string|undefined): boolean {
+    if (!channel || channel.type !== General.DM_CHANNEL || !viewedUserId) {
+        return false;
+    }
+
+    const dmUserId = getUserIdFromChannelName(currentUserId, channel.name);
+    return Boolean(dmUserId) && dmUserId === viewedUserId;
 }
 
 const enhanced = withObservables([], ({channelId, database, userId}: EnhancedProps) => {
@@ -30,12 +47,12 @@ const enhanced = withObservables([], ({channelId, database, userId}: EnhancedPro
     const user = observeUser(database, userId);
     const teammateDisplayName = observeTeammateNameDisplay(database);
     const isChannelAdmin = channelId ? observeUserIsChannelAdmin(database, userId, channelId) : of$(false);
-    const isDefaultChannel = channel ? channel.pipe(
-        switchMap((c) => of$(c?.name === General.DEFAULT_CHANNEL)),
+    const isDC = channel ? channel.pipe(
+        switchMap((c) => of$(isDefaultChannel(c))),
     ) : of$(false);
-    const isDirectMessage = channelId ? channel.pipe(
-        switchMap((c) => of$(c?.type === General.DM_CHANNEL)),
-    ) : of$(false);
+    const isDirectMessageWithUser = combineLatest([channel, currentUserId, user]).pipe(
+        map(([c, currentId, viewedUser]) => isDirectMessageWithViewedUser(c, currentId, viewedUser?.id)),
+    );
     const teamId = channel.pipe(switchMap((c) => (c?.teamId ? of$(c.teamId) : observeCurrentTeamId(database))));
     const isTeamAdmin = teamId.pipe(switchMap((id) => observeUserIsTeamAdmin(database, userId, id)));
     const systemAdmin = user.pipe(switchMap((u) => of$(u?.roles ? isSystemAdmin(u.roles) : false)));
@@ -45,6 +62,23 @@ const enhanced = withObservables([], ({channelId, database, userId}: EnhancedPro
         observeWithColumns(['value']);
     const isMilitaryTime = preferences.pipe(map((prefs) => getDisplayNamePreferenceAsBool(prefs, Preferences.USE_MILITARY_TIME)));
     const isCustomStatusEnabled = observeConfigBooleanValue(database, 'EnableCustomUserStatuses');
+    const enableCustomAttributes = observeConfigBooleanValue(database, 'FeatureFlagCustomProfileAttributes');
+
+    // Custom profile attributes
+    const rawCustomAttributes = observeCustomProfileAttributesByUserId(database, userId);
+
+    const customFields = observeCustomProfileFields(database);
+
+    // Convert attributes to the format expected by the component
+    const formattedCustomAttributes = combineLatest([rawCustomAttributes, customFields, enableCustomAttributes]).pipe(
+        mergeMap(([attributes, fields, enabled]) => {
+            if (!enabled || !attributes?.length) {
+                return of$([] as CustomAttribute[]);
+            }
+            return of$(convertProfileAttributesToCustomAttributes(attributes, fields, sortCustomProfileAttributes, true));
+        }),
+        mergeMap((converted) => of$(convertToAttributesMap(converted))),
+    );
 
     // can remove member
     const canManageAndRemoveMembers = combineLatest([channel, currentUser]).pipe(
@@ -60,8 +94,8 @@ const enhanced = withObservables([], ({channelId, database, userId}: EnhancedPro
         enablePostUsernameOverride,
         isChannelAdmin,
         isCustomStatusEnabled,
-        isDefaultChannel,
-        isDirectMessage,
+        isDefaultChannel: isDC,
+        isDirectMessageWithUser,
         isMilitaryTime,
         isSystemAdmin: systemAdmin,
         isTeamAdmin,
@@ -70,6 +104,8 @@ const enhanced = withObservables([], ({channelId, database, userId}: EnhancedPro
         user,
         canChangeMemberRoles,
         hideGuestTags: observeConfigBooleanValue(database, 'HideGuestTags'),
+        enableCustomAttributes,
+        customAttributesSet: formattedCustomAttributes,
     };
 });
 

@@ -1,10 +1,9 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useImperativeHandle, useRef, useState} from 'react';
+import React, {useCallback, useImperativeHandle, useRef, useState} from 'react';
 import {useIntl} from 'react-intl';
 import {Dimensions, StyleSheet} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import ServerIcon from '@components/server_icon';
 import {useServerUrl} from '@context/server';
@@ -12,6 +11,7 @@ import {useTheme} from '@context/theme';
 import {subscribeAllServers} from '@database/subscription/servers';
 import {subscribeUnreadAndMentionsByServer, type UnreadObserverArgs} from '@database/subscription/unreads';
 import {useIsTablet} from '@hooks/device';
+import useDidMount from '@hooks/did_mount';
 import {BUTTON_HEIGHT, TITLE_HEIGHT} from '@screens/bottom_sheet';
 import {bottomSheet} from '@screens/navigation';
 import {bottomSheetSnapPoint} from '@utils/helpers';
@@ -49,7 +49,6 @@ const Servers = React.forwardRef<ServersRef>((_, ref) => {
     const registeredServers = useRef<ServersModel[]|undefined>();
     const currentServerUrl = useServerUrl();
     const isTablet = useIsTablet();
-    const {bottom} = useSafeAreaInsets();
     const theme = useTheme();
 
     const updateTotal = () => {
@@ -119,7 +118,7 @@ const Servers = React.forwardRef<ServersRef>((_, ref) => {
             const maxScreenHeight = Math.ceil(0.6 * Dimensions.get('window').height);
             const maxSnapPoint = Math.min(
                 maxScreenHeight,
-                bottomSheetSnapPoint(registeredServers.current.length, SERVER_ITEM_HEIGHT, bottom) + TITLE_HEIGHT + BUTTON_HEIGHT +
+                bottomSheetSnapPoint(registeredServers.current.length, SERVER_ITEM_HEIGHT) + TITLE_HEIGHT + BUTTON_HEIGHT +
                     (registeredServers.current.filter((s: ServersModel) => s.lastActiveAt).length * PUSH_ALERT_TEXT_HEIGHT),
             );
 
@@ -135,19 +134,19 @@ const Servers = React.forwardRef<ServersRef>((_, ref) => {
             bottomSheet({
                 closeButtonId,
                 renderContent,
-                footerComponent: AddServerButton,
+                footerComponent: isTablet ? undefined : AddServerButton,
                 snapPoints,
                 theme,
                 title: intl.formatMessage({id: 'your.servers', defaultMessage: 'Your servers'}),
             });
         }
-    }, [bottom, isTablet, theme]);
+    }, [intl, isTablet, theme]);
 
     useImperativeHandle(ref, () => ({
         openServers: onPress,
     }), [onPress]);
 
-    useEffect(() => {
+    useDidMount(() => {
         const subscription = subscribeAllServers(serversObserver);
 
         return () => {
@@ -157,7 +156,7 @@ const Servers = React.forwardRef<ServersRef>((_, ref) => {
             });
             subscriptions.clear();
         };
-    }, []);
+    });
 
     return (
         <ServerIcon
@@ -166,6 +165,9 @@ const Servers = React.forwardRef<ServersRef>((_, ref) => {
             onPress={onPress}
             style={styles.icon}
             testID={'channel_list.servers.server_icon'}
+            badgeBorderColor={theme.sidebarBg}
+            badgeBackgroundColor={theme.mentionBg}
+            badgeColor={theme.mentionColor}
         />
     );
 });

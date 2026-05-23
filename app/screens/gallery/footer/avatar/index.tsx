@@ -1,18 +1,22 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useMemo} from 'react';
+import React from 'react';
 import {StyleSheet, View} from 'react-native';
-import FastImage from 'react-native-fast-image';
 
 import {buildAbsoluteUrl} from '@actions/remote/file';
-import {buildProfileImageUrl} from '@actions/remote/user';
+import {buildProfileImageUrlFromUser} from '@actions/remote/user';
 import CompassIcon from '@components/compass_icon';
+import ExpoImage from '@components/expo_image';
 import {useServerUrl} from '@context/server';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity} from '@utils/theme';
+import {getLastPictureUpdate} from '@utils/user';
+
+import type UserModel from '@typings/database/models/servers/user';
 
 type Props = {
-    authorId?: string;
+    author?: UserModel;
     overrideIconUrl?: string;
 }
 
@@ -32,28 +36,27 @@ const styles = StyleSheet.create({
     },
 });
 
-const Avatar = ({authorId, overrideIconUrl}: Props) => {
+const Avatar = ({
+    author,
+    overrideIconUrl,
+}: Props) => {
     const serverUrl = useServerUrl();
-    const avatarUri = useMemo(() => {
-        try {
-            if (overrideIconUrl) {
-                return buildAbsoluteUrl(serverUrl, overrideIconUrl);
-            } else if (authorId) {
-                const pictureUrl = buildProfileImageUrl(serverUrl, authorId);
-                return `${serverUrl}${pictureUrl}`;
-            }
 
-            return undefined;
-        } catch {
-            return undefined;
-        }
-    }, [serverUrl, authorId, overrideIconUrl]);
+    let uri = overrideIconUrl;
+    let id = 'avatar-override';
+    if (uri) {
+        id = `avatar-override-${urlSafeBase64Encode(uri)}`;
+    } else if (author) {
+        uri = buildProfileImageUrlFromUser(serverUrl, author);
+        id = `user-${author.id}-${getLastPictureUpdate(author)}`;
+    }
 
     let picture;
-    if (avatarUri) {
+    if (uri) {
         picture = (
-            <FastImage
-                source={{uri: avatarUri}}
+            <ExpoImage
+                id={id}
+                source={{uri: buildAbsoluteUrl(serverUrl, uri)}}
                 style={[styles.avatar, styles.avatarRadius]}
             />
         );

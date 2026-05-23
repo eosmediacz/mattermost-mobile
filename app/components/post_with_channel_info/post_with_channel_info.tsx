@@ -10,17 +10,19 @@ import ChannelInfo from './channel_info';
 
 import type PostModel from '@typings/database/models/servers/post';
 import type {SearchPattern} from '@typings/global/markdown';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 type Props = {
     appsEnabled: boolean;
     customEmojiNames: string[];
     isCRTEnabled: boolean;
     post: PostModel;
-    location: string;
+    location: AvailableScreens;
     testID?: string;
     searchPatterns?: SearchPattern[];
     skipSavedPostsHighlight?: boolean;
     isSaved?: boolean;
+    isChannelAutotranslated: boolean;
 }
 
 const styles = StyleSheet.create({
@@ -34,7 +36,18 @@ const styles = StyleSheet.create({
     },
 });
 
-function PostWithChannelInfo({appsEnabled, customEmojiNames, isCRTEnabled, post, location, testID, searchPatterns, skipSavedPostsHighlight = false, isSaved}: Props) {
+function PostWithChannelInfo({
+    appsEnabled,
+    customEmojiNames,
+    isCRTEnabled,
+    post,
+    location,
+    testID,
+    searchPatterns,
+    skipSavedPostsHighlight = false,
+    isSaved,
+    isChannelAutotranslated,
+}: Props) {
     return (
         <View style={styles.container}>
             <ChannelInfo
@@ -58,6 +71,7 @@ function PostWithChannelInfo({appsEnabled, customEmojiNames, isCRTEnabled, post,
                     nextPost={undefined}
                     testID={`${testID}.post`}
                     isSaved={isSaved}
+                    isChannelAutotranslated={isChannelAutotranslated}
                 />
             </View>
         </View>

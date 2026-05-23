@@ -6,10 +6,11 @@ import {of as of$, combineLatest} from 'rxjs';
 import {switchMap, distinctUntilChanged} from 'rxjs/operators';
 
 import {Database as DatabaseConstants, General, Permissions} from '@constants';
-import {isDMorGM} from '@utils/channel';
+import {isDefaultChannel, isDMorGM} from '@utils/channel';
 import {hasPermission} from '@utils/role';
 
 import {observeChannel, observeMyChannelRoles} from './channel';
+import {observeConfigBooleanValue} from './system';
 import {observeMyTeam, observeMyTeamRoles} from './team';
 
 import type ChannelModel from '@typings/database/models/servers/channel';
@@ -91,7 +92,7 @@ export function observePermissionForPost(database: Database, post: PostModel, us
 export function observeCanManageChannelMembers(database: Database, channelId: string, user: UserModel) {
     return observeChannel(database, channelId).pipe(
         switchMap((c) => {
-            if (!c || c.deleteAt !== 0 || isDMorGM(c) || c.name === General.DEFAULT_CHANNEL) {
+            if (!c || c.deleteAt !== 0 || isDMorGM(c) || isDefaultChannel(c)) {
                 return of$(false);
             }
 
@@ -111,6 +112,44 @@ export function observeCanManageChannelSettings(database: Database, channelId: s
 
             const permission = c.type === General.OPEN_CHANNEL ? Permissions.MANAGE_PUBLIC_CHANNEL_PROPERTIES : Permissions.MANAGE_PRIVATE_CHANNEL_PROPERTIES;
             return observePermissionForChannel(database, c, user, permission, true);
+        }),
+        distinctUntilChanged(),
+    );
+}
+
+export function observeCanManageChannelAutotranslations(database: Database, channelId: string, user: UserModel) {
+    const featureEnabled = observeConfigBooleanValue(database, 'EnableAutoTranslation');
+    const channel = observeChannel(database, channelId);
+    const restrictDMAndGMAutotranslation = observeConfigBooleanValue(database, 'RestrictDMAndGMAutotranslation');
+    return combineLatest([featureEnabled, channel, restrictDMAndGMAutotranslation]).pipe(
+        switchMap(([enabled, c, isDmGmRestricted]) => {
+            if (!enabled) {
+                return of$(false);
+            }
+
+            if (!c || c.deleteAt !== 0) {
+                return of$(false);
+            }
+
+            if (isDMorGM(c)) {
+                return of$(!isDmGmRestricted);
+            }
+
+            const permission = c.type === General.OPEN_CHANNEL ? Permissions.MANAGE_PUBLIC_CHANNEL_AUTO_TRANSLATION : Permissions.MANAGE_PRIVATE_CHANNEL_AUTO_TRANSLATION;
+            return observePermissionForChannel(database, c, user, permission, false);
+        }),
+        distinctUntilChanged(),
+    );
+}
+
+export function observeCanManageSharedChannel(database: Database, channelId: string, user: UserModel) {
+    const channel = observeChannel(database, channelId);
+    return channel.pipe(
+        switchMap((c) => {
+            if (!c || c.deleteAt !== 0 || isDMorGM(c)) {
+                return of$(false);
+            }
+            return observePermissionForChannel(database, c, user, Permissions.MANAGE_SHARED_CHANNELS, false);
         }),
         distinctUntilChanged(),
     );

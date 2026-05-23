@@ -1,10 +1,10 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {LinearGradient} from 'expo-linear-gradient';
 import React, {PureComponent, type ReactNode} from 'react';
 import {injectIntl, type IntlShape} from 'react-intl';
 import {Dimensions, type EventSubscription, type LayoutChangeEvent, Platform, type ScaledSize, ScrollView, type StyleProp, TouchableOpacity, View, type ViewStyle} from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 
 import CompassIcon from '@components/compass_icon';
 import {CELL_MAX_WIDTH, CELL_MIN_WIDTH} from '@components/markdown/markdown_table_cell';
@@ -219,9 +219,15 @@ class MarkdownTable extends PureComponent<MarkdownTableProps, MarkdownTableState
         const tableStyle = this.getTableStyle(isFullView);
 
         let rows = React.Children.toArray(this.props.children) as React.ReactElement[];
+
+        if (!rows.length) {
+            return null;
+        }
+
         if (isPreview) {
             const {maxPreviewColumns} = this.state;
             const prevRowLength = rows.length;
+
             const prevColLength = React.Children.toArray(rows[0].props.children).length;
 
             rows = rows.slice(0, maxPreviewColumns).map((row) => {

@@ -1,21 +1,23 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {AiBotModel, AiThreadModel} from '@agents/database/models';
 import {Database, Q} from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import logger from '@nozbe/watermelondb/utils/common/logger';
+import {nativeApplicationVersion, nativeBuildVersion} from 'expo-application';
+import {deleteAsync, documentDirectory, getInfoAsync, makeDirectoryAsync, moveAsync} from 'expo-file-system';
 import {DeviceEventEmitter, Platform} from 'react-native';
-import DeviceInfo from 'react-native-device-info';
-import FileSystem from 'react-native-fs';
 
+import {Events} from '@constants';
 import {DatabaseType, MIGRATION_EVENTS, MM_TABLES} from '@constants/database';
 import AppDatabaseMigrations from '@database/migration/app';
 import ServerDatabaseMigrations from '@database/migration/server';
 import {InfoModel, GlobalModel, ServersModel} from '@database/models/app';
-import {CategoryModel, CategoryChannelModel, ChannelModel, ChannelInfoModel, ChannelMembershipModel, CustomEmojiModel, DraftModel, FileModel,
+import {CategoryModel, CategoryChannelModel, ChannelModel, ChannelBookmarkModel, ChannelInfoModel, ChannelMembershipModel, CustomEmojiModel, CustomProfileFieldModel, CustomProfileAttributeModel, DraftModel, FileModel,
     GroupModel, GroupChannelModel, GroupTeamModel, GroupMembershipModel, MyChannelModel, MyChannelSettingsModel, MyTeamModel,
     PostModel, PostsInChannelModel, PostsInThreadModel, PreferenceModel, ReactionModel, RoleModel,
-    SystemModel, TeamModel, TeamChannelHistoryModel, TeamMembershipModel, TeamSearchHistoryModel,
+    ScheduledPostModel, SystemModel, TeamModel, TeamChannelHistoryModel, TeamMembershipModel, TeamSearchHistoryModel,
     ThreadModel, ThreadParticipantModel, ThreadInTeamModel, TeamThreadsSyncModel, UserModel, ConfigModel,
 } from '@database/models/server';
 import AppDataOperator from '@database/operator/app_data_operator';
@@ -23,8 +25,9 @@ import ServerDataOperator from '@database/operator/server_data_operator';
 import {schema as appSchema} from '@database/schema/app';
 import {serverSchema} from '@database/schema/server';
 import {beforeUpgrade} from '@helpers/database/upgrade';
+import {removePreauthSecret} from '@init/credentials';
+import {PlaybookRunModel, PlaybookChecklistModel, PlaybookChecklistItemModel, PlaybookRunPropertyFieldModel, PlaybookRunPropertyValueModel} from '@playbooks/database/models';
 import {getActiveServer, getServer, getServerByIdentifier} from '@queries/app/servers';
-import {emptyFunction} from '@utils/general';
 import {logDebug, logError} from '@utils/log';
 import {deleteIOSDatabase, getIOSAppGroupDetails, renameIOSDatabase} from '@utils/mattermost_managed';
 import {urlSafeBase64Encode} from '@utils/security';
@@ -35,7 +38,7 @@ import type {AppDatabase, CreateServerDatabaseArgs, RegisterServerDatabaseArgs, 
 const {SERVERS} = MM_TABLES.APP;
 const APP_DATABASE = 'app';
 
-class DatabaseManager {
+class DatabaseManagerSingleton {
     public appDatabase?: AppDatabase;
     public serverDatabases: ServerDatabases = {};
     private readonly appModels: Models;
@@ -45,14 +48,16 @@ class DatabaseManager {
     constructor() {
         this.appModels = [InfoModel, GlobalModel, ServersModel];
         this.serverModels = [
-            CategoryModel, CategoryChannelModel, ChannelModel, ChannelInfoModel, ChannelMembershipModel, ConfigModel, CustomEmojiModel, DraftModel, FileModel,
+            AiBotModel, AiThreadModel,
+            CategoryModel, CategoryChannelModel, ChannelModel, ChannelBookmarkModel, ChannelInfoModel, ChannelMembershipModel, ConfigModel, CustomEmojiModel, CustomProfileFieldModel, CustomProfileAttributeModel, DraftModel, FileModel,
             GroupModel, GroupChannelModel, GroupTeamModel, GroupMembershipModel, MyChannelModel, MyChannelSettingsModel, MyTeamModel,
             PostModel, PostsInChannelModel, PostsInThreadModel, PreferenceModel, ReactionModel, RoleModel,
-            SystemModel, TeamModel, TeamChannelHistoryModel, TeamMembershipModel, TeamSearchHistoryModel,
+            ScheduledPostModel, SystemModel, TeamModel, TeamChannelHistoryModel, TeamMembershipModel, TeamSearchHistoryModel,
             ThreadModel, ThreadParticipantModel, ThreadInTeamModel, TeamThreadsSyncModel, UserModel,
+            PlaybookRunModel, PlaybookChecklistModel, PlaybookChecklistItemModel, PlaybookRunPropertyFieldModel, PlaybookRunPropertyValueModel,
         ];
 
-        this.databaseDirectory = Platform.OS === 'ios' ? getIOSAppGroupDetails().appGroupDatabase : `${FileSystem.DocumentDirectoryPath}/databases/`;
+        this.databaseDirectory = Platform.OS === 'ios' ? getIOSAppGroupDetails().appGroupDatabase : `${documentDirectory}/databases/`;
     }
 
     /**
@@ -62,17 +67,17 @@ class DatabaseManager {
     */
     public init = async (serverUrls: string[]): Promise<void> => {
         await this.createAppDatabase();
-        const buildNumber = DeviceInfo.getBuildNumber();
-        const versionNumber = DeviceInfo.getVersion();
+        const buildNumber = nativeBuildVersion;
+        const versionNumber = nativeApplicationVersion;
         await beforeUpgrade.call(this, serverUrls, versionNumber, buildNumber);
         for await (const serverUrl of serverUrls) {
             await this.initServerDatabase(serverUrl);
         }
         this.appDatabase?.operator.handleInfo({
             info: [{
-                build_number: buildNumber,
+                build_number: buildNumber || '',
                 created_at: Date.now(),
-                version_number: versionNumber,
+                version_number: versionNumber || '',
             }],
             prepareRecordsOnly: false,
         });
@@ -88,7 +93,7 @@ class DatabaseManager {
             const databaseName = APP_DATABASE;
 
             if (Platform.OS === 'android') {
-                await FileSystem.mkdir(this.databaseDirectory!);
+                await makeDirectoryAsync(this.databaseDirectory!, {intermediates: true});
             }
             const databaseFilePath = this.getDatabaseFilePath(databaseName);
             const modelClasses = this.appModels;
@@ -333,15 +338,16 @@ class DatabaseManager {
     * @param {string} serverUrl
     * @returns {Promise<void>}
     */
-    public setActiveServerDatabase = async (serverUrl: string): Promise<void> => {
+    public setActiveServerDatabase = async (serverUrl: string, options?: ActiveServerOptions): Promise<void> => {
         if (this.appDatabase?.database) {
             const database = this.appDatabase?.database;
             await database.write(async () => {
                 const servers = await database.collections.get(SERVERS).query(Q.where('url', serverUrl)).fetch();
                 if (servers.length) {
-                    servers[0].update((server: ServersModel) => {
+                    await servers[0].update((server: ServersModel) => {
                         server.lastActiveAt = Date.now();
                     });
+                    DeviceEventEmitter.emit(Events.ACTIVE_SERVER_CHANGED, {serverUrl, options});
                 }
             });
         }
@@ -388,6 +394,9 @@ class DatabaseManager {
 
                 delete this.serverDatabases[serverUrl];
                 this.deleteServerDatabaseFiles(serverUrl);
+
+                // Remove pre-auth secret when server is destroyed
+                await removePreauthSecret(serverUrl);
             }
         }
     };
@@ -420,9 +429,9 @@ class DatabaseManager {
         const databaseShm = `${androidFilesDir}${databaseName}.db-shm`;
         const databaseWal = `${androidFilesDir}${databaseName}.db-wal`;
 
-        await FileSystem.unlink(databaseFile).catch(emptyFunction);
-        await FileSystem.unlink(databaseShm).catch(emptyFunction);
-        await FileSystem.unlink(databaseWal).catch(emptyFunction);
+        await deleteAsync(databaseFile, {idempotent: true});
+        await deleteAsync(databaseShm, {idempotent: true});
+        await deleteAsync(databaseWal, {idempotent: true});
     };
 
     /**
@@ -448,20 +457,20 @@ class DatabaseManager {
         const newDatabaseShm = `${androidFilesDir}${newDBName}.db-shm`;
         const newDatabaseWal = `${androidFilesDir}${newDBName}.db-wal`;
 
-        if (await FileSystem.exists(newDatabaseFile)) {
+        if ((await getInfoAsync(newDatabaseFile)).exists) {
             // Already renamed, do not try
             return;
         }
 
-        if (!await FileSystem.exists(databaseFile)) {
+        if (!(await getInfoAsync(databaseFile)).exists) {
             // Nothing to rename, do not try
             return;
         }
 
         try {
-            await FileSystem.moveFile(databaseFile, newDatabaseFile);
-            await FileSystem.moveFile(databaseShm, newDatabaseShm);
-            await FileSystem.moveFile(databaseWal, newDatabaseWal);
+            await moveAsync({from: databaseFile, to: newDatabaseFile});
+            await moveAsync({from: databaseShm, to: newDatabaseShm});
+            await moveAsync({from: databaseWal, to: newDatabaseWal});
         } catch (error) {
             // Do nothing
         }
@@ -482,7 +491,7 @@ class DatabaseManager {
 
             // On Android, we'll remove the databases folder under the Document Directory
             const androidFilesDir = `${this.databaseDirectory}databases/`;
-            await FileSystem.unlink(androidFilesDir);
+            await deleteAsync(androidFilesDir);
             return true;
         } catch (e) {
             return false;
@@ -550,9 +559,10 @@ class DatabaseManager {
 }
 
 if (!__DEV__) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+
     // @ts-ignore
     logger.silence();
 }
 
-export default new DatabaseManager();
+const DatabaseManager = new DatabaseManagerSingleton();
+export default DatabaseManager;

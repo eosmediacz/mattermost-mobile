@@ -1,24 +1,40 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import AGENTS_SCREENS from '@agents/constants/screens';
+
+import PLAYBOOKS_SCREENS from '@playbooks/constants/screens';
+
 export const ABOUT = 'About';
 export const ACCOUNT = 'Account';
+export const AGENTS = 'Agents';
 export const APPS_FORM = 'AppForm';
+export const ATTACHMENT_OPTIONS = 'AttachmentOptions';
 export const BOTTOM_SHEET = 'BottomSheet';
 export const BROWSE_CHANNELS = 'BrowseChannels';
 export const CALL = 'Call';
+export const CALL_PARTICIPANTS = 'CallParticipants';
+export const CALL_HOST_CONTROLS = 'CallHostControls';
 export const CHANNEL = 'Channel';
 export const CHANNEL_ADD_MEMBERS = 'ChannelAddMembers';
+export const CHANNEL_BANNER = 'ChannelBanner';
+export const CHANNEL_BOOKMARK = 'ChannelBookmarkAddOrEdit';
 export const CHANNEL_FILES = 'ChannelFiles';
 export const CHANNEL_INFO = 'ChannelInfo';
 export const CHANNEL_NOTIFICATION_PREFERENCES = 'ChannelNotificationPreferences';
+export const CHANNEL_CONFIGURATION = 'ChannelConfiguration';
+export const CHANNEL_SETTINGS = 'ChannelSettings';
+export const CHANNEL_SHARE = 'ChannelShare';
 export const CODE = 'Code';
 export const CONVERT_GM_TO_CHANNEL = 'ConvertGMToChannel';
 export const CREATE_DIRECT_MESSAGE = 'CreateDirectMessage';
 export const CREATE_OR_EDIT_CHANNEL = 'CreateOrEditChannel';
 export const CREATE_TEAM = 'CreateTeam';
+export const COMPONENT_LIBRARY = 'ComponentLibrary';
 export const CUSTOM_STATUS = 'CustomStatus';
 export const CUSTOM_STATUS_CLEAR_AFTER = 'CustomStatusClearAfter';
+export const DRAFT = 'Draft';
+export const DRAFT_SCHEDULED_POST_OPTIONS = 'DraftScheduledPostOptions';
 export const EDIT_POST = 'EditPost';
 export const EDIT_PROFILE = 'EditProfile';
 export const EDIT_SERVER = 'EditServer';
@@ -26,10 +42,14 @@ export const EMOJI_PICKER = 'EmojiPicker';
 export const FIND_CHANNELS = 'FindChannels';
 export const FORGOT_PASSWORD = 'ForgotPassword';
 export const GALLERY = 'Gallery';
+export const GENERIC_OVERLAY = 'GenericOverlay';
+export const GLOBAL_DRAFTS = 'GlobalDrafts';
+export const GLOBAL_DRAFTS_AND_SCHEDULED_POSTS = 'GlobalDraftsAndScheduledPosts';
 export const GLOBAL_THREADS = 'GlobalThreads';
 export const HOME = 'Home';
 export const INTEGRATION_SELECTOR = 'IntegrationSelector';
 export const INTERACTIVE_DIALOG = 'InteractiveDialog';
+export const DIALOG_ROUTER = 'DialogRouter';
 export const INVITE = 'Invite';
 export const IN_APP_NOTIFICATION = 'InAppNotification';
 export const JOIN_TEAM = 'JoinTeam';
@@ -39,13 +59,17 @@ export const MANAGE_CHANNEL_MEMBERS = 'ManageChannelMembers';
 export const MENTIONS = 'Mentions';
 export const MFA = 'MFA';
 export const ONBOARDING = 'Onboarding';
+export const PDF_VIEWER = 'PdfViewer';
 export const PERMALINK = 'Permalink';
 export const PINNED_MESSAGES = 'PinnedMessages';
 export const POST_OPTIONS = 'PostOptions';
 export const POST_PRIORITY_PICKER = 'PostPriorityPicker';
 export const REACTIONS = 'Reactions';
+export const REPORT_PROBLEM = 'ReportProblem';
+export const RESCHEDULE_DRAFT = 'RescheduleDraft';
 export const REVIEW_APP = 'ReviewApp';
 export const SAVED_MESSAGES = 'SavedMessages';
+export const SCHEDULED_POST_OPTIONS = 'ScheduledPostOptions';
 export const SEARCH = 'Search';
 export const SELECT_TEAM = 'SelectTeam';
 export const SERVER = 'Server';
@@ -62,6 +86,7 @@ export const SETTINGS_NOTIFICATION_AUTO_RESPONDER = 'SettingsNotificationAutoRes
 export const SETTINGS_NOTIFICATION_EMAIL = 'SettingsNotificationEmail';
 export const SETTINGS_NOTIFICATION_MENTION = 'SettingsNotificationMention';
 export const SETTINGS_NOTIFICATION_PUSH = 'SettingsNotificationPush';
+export const SETTINGS_NOTIFICATION_CALL = 'SettingsNotificationCall';
 export const SHARE_FEEDBACK = 'ShareFeedback';
 export const SNACK_BAR = 'SnackBar';
 export const SSO = 'SSO';
@@ -72,26 +97,39 @@ export const THREAD = 'Thread';
 export const THREAD_FOLLOW_BUTTON = 'ThreadFollowButton';
 export const THREAD_OPTIONS = 'ThreadOptions';
 export const USER_PROFILE = 'UserProfile';
+export const SHOW_TRANSLATION = 'ShowTranslation';
+export const WATERMARK = 'Watermark';
 
 export default {
     ABOUT,
     ACCOUNT,
+    AGENTS,
     APPS_FORM,
+    ATTACHMENT_OPTIONS,
     BOTTOM_SHEET,
     BROWSE_CHANNELS,
     CALL,
+    CALL_PARTICIPANTS,
+    CALL_HOST_CONTROLS,
     CHANNEL,
     CHANNEL_ADD_MEMBERS,
+    CHANNEL_BANNER,
+    CHANNEL_BOOKMARK,
     CHANNEL_FILES,
     CHANNEL_INFO,
     CHANNEL_NOTIFICATION_PREFERENCES,
+    CHANNEL_CONFIGURATION,
+    CHANNEL_SETTINGS,
+    CHANNEL_SHARE,
     CODE,
     CONVERT_GM_TO_CHANNEL,
+    COMPONENT_LIBRARY,
     CREATE_DIRECT_MESSAGE,
     CREATE_OR_EDIT_CHANNEL,
     CREATE_TEAM,
     CUSTOM_STATUS,
     CUSTOM_STATUS_CLEAR_AFTER,
+    DRAFT_SCHEDULED_POST_OPTIONS,
     EDIT_POST,
     EDIT_PROFILE,
     EDIT_SERVER,
@@ -99,10 +137,14 @@ export default {
     FIND_CHANNELS,
     FORGOT_PASSWORD,
     GALLERY,
+    GENERIC_OVERLAY,
+    GLOBAL_DRAFTS,
+    GLOBAL_DRAFTS_AND_SCHEDULED_POSTS,
     GLOBAL_THREADS,
     HOME,
     INTEGRATION_SELECTOR,
     INTERACTIVE_DIALOG,
+    DIALOG_ROUTER,
     INVITE,
     IN_APP_NOTIFICATION,
     JOIN_TEAM,
@@ -112,13 +154,17 @@ export default {
     MENTIONS,
     MFA,
     ONBOARDING,
+    PDF_VIEWER,
     PERMALINK,
     PINNED_MESSAGES,
     POST_OPTIONS,
     POST_PRIORITY_PICKER,
     REACTIONS,
+    REPORT_PROBLEM,
+    RESCHEDULE_DRAFT,
     REVIEW_APP,
     SAVED_MESSAGES,
+    SCHEDULED_POST_OPTIONS,
     SEARCH,
     SELECT_TEAM,
     SERVER,
@@ -135,6 +181,7 @@ export default {
     SETTINGS_NOTIFICATION_EMAIL,
     SETTINGS_NOTIFICATION_MENTION,
     SETTINGS_NOTIFICATION_PUSH,
+    SETTINGS_NOTIFICATION_CALL,
     SHARE_FEEDBACK,
     SNACK_BAR,
     SSO,
@@ -145,6 +192,10 @@ export default {
     THREAD_FOLLOW_BUTTON,
     THREAD_OPTIONS,
     USER_PROFILE,
+    SHOW_TRANSLATION,
+    WATERMARK,
+    ...PLAYBOOKS_SCREENS,
+    ...AGENTS_SCREENS,
 } as const;
 
 export const MODAL_SCREENS_WITHOUT_BACK = new Set<string>([
@@ -159,26 +210,39 @@ export const MODAL_SCREENS_WITHOUT_BACK = new Set<string>([
     EDIT_SERVER,
     FIND_CHANNELS,
     GALLERY,
-    MANAGE_CHANNEL_MEMBERS,
     INVITE,
+    MANAGE_CHANNEL_MEMBERS,
+    PDF_VIEWER,
     PERMALINK,
+    RESCHEDULE_DRAFT,
 ]);
 
 export const SCREENS_WITH_TRANSPARENT_BACKGROUND = new Set<string>([
     PERMALINK,
     REVIEW_APP,
     SNACK_BAR,
+    GENERIC_OVERLAY,
+    WATERMARK,
 ]);
 
 export const SCREENS_AS_BOTTOM_SHEET = new Set<string>([
+    AGENTS_SCREENS.AGENTS_SELECTOR,
+    AGENTS_SCREENS.AGENTS_REWRITE_OPTIONS,
+    ATTACHMENT_OPTIONS,
     BOTTOM_SHEET,
+    DRAFT_SCHEDULED_POST_OPTIONS,
     EMOJI_PICKER,
     POST_OPTIONS,
     POST_PRIORITY_PICKER,
     THREAD_OPTIONS,
     REACTIONS,
     USER_PROFILE,
+    CALL_PARTICIPANTS,
+    CALL_HOST_CONTROLS,
+    SCHEDULED_POST_OPTIONS,
 ]);
+
+export const SCREENS_WITH_EXTRA_KEYBOARD = new Set<string>([CHANNEL, THREAD]);
 
 export const NOT_READY = [
     CREATE_TEAM,

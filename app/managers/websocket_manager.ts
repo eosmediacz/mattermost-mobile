@@ -1,16 +1,16 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import NetInfo, {type NetInfoState} from '@react-native-community/netinfo';
-import {debounce, type DebouncedFunc} from 'lodash';
-import {AppState, type AppStateStatus} from 'react-native';
+import NetInfo, {NetInfoStateType, type NetInfoState, type NetInfoSubscription} from '@react-native-community/netinfo';
+import {AppState, type AppStateStatus, type NativeEventSubscription} from 'react-native';
 import BackgroundTimer from 'react-native-background-timer';
 import {BehaviorSubject} from 'rxjs';
 import {distinctUntilChanged} from 'rxjs/operators';
 
 import {setCurrentUserStatus} from '@actions/local/user';
 import {fetchStatusByIds} from '@actions/remote/user';
-import {handleClose, handleEvent, handleFirstConnect, handleReconnect} from '@actions/websocket';
+import {handleFirstConnect, handleReconnect} from '@actions/websocket';
+import {handleWebSocketEvent} from '@actions/websocket/event';
 import WebSocketClient from '@client/websocket';
 import {General} from '@constants';
 import DatabaseManager from '@database/manager';
@@ -23,66 +23,93 @@ import {logError} from '@utils/log';
 const WAIT_TO_CLOSE = toMilliseconds({seconds: 15});
 const WAIT_UNTIL_NEXT = toMilliseconds({seconds: 5});
 
-class WebsocketManager {
+class WebsocketManagerSingleton {
     private connectedSubjects: {[serverUrl: string]: BehaviorSubject<WebsocketConnectedState>} = {};
 
     private clients: Record<string, WebSocketClient> = {};
-    private connectionTimerIDs: Record<string, DebouncedFunc<() => void>> = {};
+    private connectionTimerIDs: Record<string, NodeJS.Timeout> = {};
     private isBackgroundTimerRunning = false;
     private netConnected = false;
+    private netType: NetInfoStateType = NetInfoStateType.none;
     private previousActiveState: boolean;
     private statusUpdatesIntervalIDs: Record<string, NodeJS.Timeout> = {};
     private backgroundIntervalId: number | undefined;
     private firstConnectionSynced: Record<string, boolean> = {};
+
+    private appStateSubscription: NativeEventSubscription | undefined;
+    private netStateSubscription: NetInfoSubscription | undefined;
 
     constructor() {
         this.previousActiveState = AppState.currentState === 'active';
     }
 
     public init = async (serverCredentials: ServerCredential[]) => {
-        this.netConnected = Boolean((await NetInfo.fetch()).isConnected);
-        serverCredentials.forEach(
-            ({serverUrl, token}) => {
+        const netInfo = await NetInfo.fetch();
+        this.netConnected = Boolean(netInfo.isConnected);
+        this.netType = netInfo.type;
+        await Promise.all(serverCredentials.map(
+            async ({serverUrl, token, preauthSecret}) => {
                 try {
                     DatabaseManager.getServerDatabaseAndOperator(serverUrl);
-                    this.createClient(serverUrl, token, 0);
+                    await this.createClient(serverUrl, token, preauthSecret);
                 } catch (error) {
                     logError('WebsocketManager init error', error);
                 }
             },
-        );
+        ));
 
-        AppState.addEventListener('change', this.onAppStateChange);
-        NetInfo.addEventListener(this.onNetStateChange);
+        this.appStateSubscription?.remove();
+        this.netStateSubscription?.();
+
+        this.appStateSubscription = AppState.addEventListener('change', this.onAppStateChange);
+        this.netStateSubscription = NetInfo.addEventListener(this.onNetStateChange);
     };
 
-    public invalidateClient = (serverUrl: string) => {
-        this.clients[serverUrl]?.close();
-        this.clients[serverUrl]?.invalidate();
-        if (this.connectionTimerIDs[serverUrl]) {
-            this.connectionTimerIDs[serverUrl].cancel();
-        }
+    public invalidateClient = async (serverUrl: string) => {
+        const client = this.clients[serverUrl];
+
+        // Evict from registry and clear reconnect timer before awaiting teardown,
+        // so no concurrent code path (e.g. openAll/initializeClient) can reach
+        // this client or use stale manager state during the wait.
+        clearTimeout(this.connectionTimerIDs[serverUrl]);
+        delete this.connectionTimerIDs[serverUrl];
         delete this.clients[serverUrl];
         delete this.firstConnectionSynced[serverUrl];
+        this.stopPeriodicStatusUpdates(serverUrl);
 
-        this.getConnectedSubject(serverUrl).next('not_connected');
-        delete this.connectedSubjects[serverUrl];
-    };
-
-    public createClient = (serverUrl: string, bearerToken: string, storedLastDisconnect = 0) => {
-        if (this.clients[serverUrl]) {
-            this.invalidateClient(serverUrl);
+        if (client) {
+            client.close(true);
+            await client.waitForClose();
+            client.invalidate();
         }
 
-        const client = new WebSocketClient(serverUrl, bearerToken, storedLastDisconnect);
+        // We don't remove the connected subject so any potential client invalidation
+        // and subsequent creation of the client can still be observed by the component.
+        // Being purist, this is a memory leak, since we never clean any server url,
+        // but since this information lives in memory and we don't expect many servers
+        // to be added and removed in one single session, this should be fine.
+        this.getConnectedSubject(serverUrl).next('not_connected');
+    };
 
-        client.setFirstConnectCallback(() => this.onFirstConnect(serverUrl));
-        client.setEventCallback((evt: any) => handleEvent(serverUrl, evt));
+    public createClient = async (serverUrl: string, bearerToken: string, preauthSecret?: string) => {
+        if (this.clients[serverUrl]) {
+            await this.invalidateClient(serverUrl);
+        }
+
+        const client = new WebSocketClient(serverUrl, bearerToken, preauthSecret);
+
+        // Guard: callbacks capture the client instance so stale callbacks from
+        // an old client that was replaced (but whose late onClose still fires)
+        // can be detected and dropped by comparing against this.clients[serverUrl].
+        const isCurrentClient = () => this.clients[serverUrl] === client;
+
+        client.setFirstConnectCallback(() => isCurrentClient() && this.onFirstConnect(serverUrl));
+        client.setEventCallback((evt: WebSocketMessage) => isCurrentClient() && handleWebSocketEvent(serverUrl, evt));
 
         //client.setMissedEventsCallback(() => {}) Nothing to do on missedEvents callback
-        client.setReconnectCallback(() => this.onReconnect(serverUrl));
-        client.setReliableReconnectCallback(() => this.onReliableReconnect(serverUrl));
-        client.setCloseCallback((connectFailCount: number, lastDisconnect: number) => this.onWebsocketClose(serverUrl, connectFailCount, lastDisconnect));
+        client.setReconnectCallback(() => isCurrentClient() && this.onReconnect(serverUrl));
+        client.setReliableReconnectCallback(() => isCurrentClient() && this.onReliableReconnect(serverUrl));
+        client.setCloseCallback((connectFailCount: number) => isCurrentClient() && this.onWebsocketClose(serverUrl, connectFailCount));
 
         this.clients[serverUrl] = client;
 
@@ -92,23 +119,21 @@ class WebsocketManager {
     public closeAll = () => {
         for (const url of Object.keys(this.clients)) {
             const client = this.clients[url];
-            if (client.isConnected()) {
-                client.close(true);
-                this.getConnectedSubject(url).next('not_connected');
-            }
+            client.close(true);
+            this.getConnectedSubject(url).next('not_connected');
         }
     };
 
-    public openAll = async () => {
+    public openAll = async (groupLabel?: BaseRequestGroupLabel) => {
+        let queued = 0;
         for await (const clientUrl of Object.keys(this.clients)) {
             const activeServerUrl = await DatabaseManager.getActiveServerUrl();
             if (clientUrl === activeServerUrl) {
-                this.initializeClient(clientUrl);
+                this.initializeClient(clientUrl, groupLabel);
             } else {
+                queued += 1;
                 this.getConnectedSubject(clientUrl).next('connecting');
-                const bounce = debounce(this.initializeClient.bind(this, clientUrl), WAIT_UNTIL_NEXT);
-                this.connectionTimerIDs[clientUrl] = bounce;
-                bounce();
+                this.connectionTimerIDs[clientUrl] = setTimeout(() => this.initializeClient(clientUrl, groupLabel), WAIT_UNTIL_NEXT * queued);
             }
         }
     };
@@ -131,24 +156,27 @@ class WebsocketManager {
         return this.connectedSubjects[serverUrl];
     };
 
-    private cancelAllConnections = () => {
-        for (const url in this.connectionTimerIDs) {
-            if (this.connectionTimerIDs[url]) {
-                this.connectionTimerIDs[url].cancel();
-                delete this.connectionTimerIDs[url];
-            }
+    private cancelConnectTimers = () => {
+        for (const [url, timer] of Object.entries(this.connectionTimerIDs)) {
+            clearTimeout(timer);
+            delete this.connectionTimerIDs[url];
         }
     };
 
-    public initializeClient = async (serverUrl: string) => {
-        const client: WebSocketClient = this.clients[serverUrl];
-        this.connectionTimerIDs[serverUrl]?.cancel();
+    public initializeClient = async (serverUrl: string, groupLabel: BaseRequestGroupLabel = 'WebSocket Reconnect') => {
+        const client = this.clients[serverUrl];
+        clearTimeout(this.connectionTimerIDs[serverUrl]);
         delete this.connectionTimerIDs[serverUrl];
-        if (!client?.isConnected()) {
-            client.initialize();
-            if (!this.firstConnectionSynced[serverUrl]) {
-                const error = await handleFirstConnect(serverUrl);
+        if (!client) {
+            return;
+        }
+        if (!client.isConnected()) {
+            const hasSynced = this.firstConnectionSynced[serverUrl];
+            client.initialize({}, !hasSynced);
+            if (!hasSynced) {
+                const error = await handleFirstConnect(serverUrl, groupLabel);
                 if (error) {
+                    // This will try to reconnect and try to sync again
                     client.close(false);
                 }
 
@@ -168,6 +196,7 @@ class WebsocketManager {
     private onReconnect = async (serverUrl: string) => {
         this.startPeriodicStatusUpdates(serverUrl);
         this.getConnectedSubject(serverUrl).next('connected');
+
         const error = await handleReconnect(serverUrl);
         if (error) {
             this.getClient(serverUrl)?.close(false);
@@ -178,12 +207,10 @@ class WebsocketManager {
         this.getConnectedSubject(serverUrl).next('connected');
     };
 
-    private onWebsocketClose = async (serverUrl: string, connectFailCount: number, lastDisconnect: number) => {
+    private onWebsocketClose = async (serverUrl: string, connectFailCount: number) => {
         this.getConnectedSubject(serverUrl).next('not_connected');
         if (connectFailCount <= 1) { // First fail
             await setCurrentUserStatus(serverUrl, General.OFFLINE);
-            await handleClose(serverUrl, lastDisconnect);
-
             this.stopPeriodicStatusUpdates(serverUrl);
         }
     };
@@ -212,65 +239,71 @@ class WebsocketManager {
     }
 
     private stopPeriodicStatusUpdates(serverUrl: string) {
-        const currentId = this.statusUpdatesIntervalIDs[serverUrl];
-        if (currentId != null) {
-            clearInterval(currentId);
-        }
-
+        clearInterval(this.statusUpdatesIntervalIDs[serverUrl]);
         delete this.statusUpdatesIntervalIDs[serverUrl];
     }
 
-    private onAppStateChange = async (appState: AppStateStatus) => {
-        const isActive = appState === 'active';
-        if (isActive === this.previousActiveState) {
+    private onAppStateChange = (appState: AppStateStatus) => {
+        const isMain = isMainActivity();
+        if (!isMain) {
             return;
         }
 
-        const isMain = isMainActivity();
+        const isActive = appState === 'active';
+        this.handleStateChange(this.netConnected, this.netType, isActive);
+    };
 
-        this.cancelAllConnections();
-        if (!isActive && !this.isBackgroundTimerRunning) {
+    private onNetStateChange = (netState: NetInfoState) => {
+        const newState = Boolean(netState.isConnected);
+        this.handleStateChange(newState, netState.type, this.previousActiveState);
+    };
+
+    private handleStateChange = (currentIsConnected: boolean, currentNetType: NetInfoStateType, currentIsActive: boolean) => {
+        if (currentIsActive === this.previousActiveState && currentIsConnected === this.netConnected && currentNetType === this.netType) {
+            return;
+        }
+
+        this.cancelConnectTimers();
+
+        const wentBackground = this.previousActiveState && !currentIsActive;
+        const switchedNetworks = currentIsConnected && currentNetType !== this.netType && this.netType !== 'none';
+
+        this.previousActiveState = currentIsActive;
+        this.netConnected = currentIsConnected;
+        this.netType = currentNetType;
+
+        if (!currentIsConnected) {
+            this.closeAll();
+            return;
+        }
+
+        if (switchedNetworks) {
+            // Close all connections when we switch from (for example) vpn to wifi
+            // to ensure we are using the right network and doesn't get stuck on
+            // retries.
+            this.closeAll();
+        }
+
+        if (currentIsActive) {
+            if (this.isBackgroundTimerRunning) {
+                BackgroundTimer.clearInterval(this.backgroundIntervalId!);
+            }
+            this.isBackgroundTimerRunning = false;
+            if (this.netConnected) {
+                this.openAll('WebSocket Reconnect');
+            }
+
+            return;
+        }
+
+        if (wentBackground && !this.isBackgroundTimerRunning) {
             this.isBackgroundTimerRunning = true;
-            this.cancelAllConnections();
             this.backgroundIntervalId = BackgroundTimer.setInterval(() => {
                 this.closeAll();
                 BackgroundTimer.clearInterval(this.backgroundIntervalId!);
                 this.isBackgroundTimerRunning = false;
             }, WAIT_TO_CLOSE);
-
-            this.previousActiveState = isActive;
-            return;
         }
-
-        if (isActive && this.netConnected && isMain) { // Reopen the websockets only if there is connection
-            if (this.backgroundIntervalId) {
-                BackgroundTimer.clearInterval(this.backgroundIntervalId);
-            }
-            this.isBackgroundTimerRunning = false;
-            this.openAll();
-            this.previousActiveState = isActive;
-            return;
-        }
-
-        if (isMain) {
-            this.previousActiveState = isActive;
-        }
-    };
-
-    private onNetStateChange = async (netState: NetInfoState) => {
-        const newState = Boolean(netState.isConnected);
-        if (this.netConnected === newState) {
-            return;
-        }
-
-        this.netConnected = newState;
-
-        if (this.netConnected && this.previousActiveState) { // Reopen the websockets only if the app is active
-            this.openAll();
-            return;
-        }
-
-        this.closeAll();
     };
 
     public getClient = (serverUrl: string): WebSocketClient | undefined => {
@@ -278,4 +311,5 @@ class WebsocketManager {
     };
 }
 
-export default new WebsocketManager();
+const WebsocketManager = new WebsocketManagerSingleton();
+export default WebsocketManager;

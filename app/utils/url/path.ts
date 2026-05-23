@@ -2,7 +2,8 @@
 // See LICENSE.txt for license information.
 
 export const ID_PATH_PATTERN = '[a-z0-9]{26}';
-export const PLUGIN_ID_PATH_PATTERN = '[a-zA-Z0-9-_.]{3,190}';
+
+export const TOKEN_PATH_PATTERN = '[a-z0-9]{64}';
 
 // This should cover:
 // - Team name (lowercase english characters, numbers or -)

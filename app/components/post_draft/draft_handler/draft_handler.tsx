@@ -1,15 +1,19 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef} from 'react';
 import {useIntl} from 'react-intl';
 
 import {addFilesToDraft, removeDraft} from '@actions/local/draft';
 import {useServerUrl} from '@context/server';
-import DraftUploadManager from '@managers/draft_upload_manager';
-import {fileMaxWarning, fileSizeWarning, uploadDisabledWarning} from '@utils/file';
+import useFileUploadError from '@hooks/file_upload_error';
+import DraftEditPostUploadManager from '@managers/draft_upload_manager';
+import {fileMaxWarning, fileSizeWarning, getUploadErrorMessage, uploadDisabledWarning} from '@utils/file';
 
 import SendHandler from '../send_handler';
+
+import type {ErrorHandlers} from '@typings/components/upload_error_handlers';
+import type {AvailableScreens} from '@typings/screens/navigation';
 
 type Props = {
     testID?: string;
@@ -26,14 +30,11 @@ type Props = {
     updateValue: React.Dispatch<React.SetStateAction<string>>;
     value: string;
     setIsFocused: (isFocused: boolean) => void;
+    onPostCreated?: (postId: string) => void;
+    location?: AvailableScreens;
 }
 
 const emptyFileList: FileInfo[] = [];
-const UPLOAD_ERROR_SHOW_INTERVAL = 5000;
-
-type ErrorHandlers = {
-    [clientId: string]: (() => void) | null;
-}
 
 export default function DraftHandler(props: Props) {
     const {
@@ -51,31 +52,24 @@ export default function DraftHandler(props: Props) {
         updateValue,
         value,
         setIsFocused,
+        onPostCreated,
+        location,
     } = props;
 
     const serverUrl = useServerUrl();
     const intl = useIntl();
 
-    const [uploadError, setUploadError] = useState<React.ReactNode>(null);
-
-    const uploadErrorTimeout = useRef<NodeJS.Timeout>();
     const uploadErrorHandlers = useRef<ErrorHandlers>({});
+    const {uploadError, newUploadError} = useFileUploadError();
+
+    const handleUploadError = useCallback((errorMessage: string, errorName?: string) => {
+        newUploadError(getUploadErrorMessage(intl, errorMessage, errorName));
+    }, [intl, newUploadError]);
 
     const clearDraft = useCallback(() => {
         removeDraft(serverUrl, channelId, rootId);
         updateValue('');
-    }, [serverUrl, channelId, rootId]);
-
-    const newUploadError = useCallback((error: React.ReactNode) => {
-        if (uploadErrorTimeout.current) {
-            clearTimeout(uploadErrorTimeout.current);
-        }
-        setUploadError(error);
-
-        uploadErrorTimeout.current = setTimeout(() => {
-            setUploadError(null);
-        }, UPLOAD_ERROR_SHOW_INTERVAL);
-    }, []);
+    }, [serverUrl, channelId, rootId, updateValue]);
 
     const addFiles = useCallback((newFiles: FileInfo[]) => {
         if (!newFiles.length) {
@@ -103,19 +97,19 @@ export default function DraftHandler(props: Props) {
         addFilesToDraft(serverUrl, channelId, rootId, newFiles);
 
         for (const file of newFiles) {
-            DraftUploadManager.prepareUpload(serverUrl, file, channelId, rootId);
-            uploadErrorHandlers.current[file.clientId!] = DraftUploadManager.registerErrorHandler(file.clientId!, newUploadError);
+            DraftEditPostUploadManager.prepareUpload(serverUrl, file, channelId, rootId);
+            uploadErrorHandlers.current[file.clientId!] = DraftEditPostUploadManager.registerErrorHandler(file.clientId!, handleUploadError);
         }
 
         newUploadError(null);
-    }, [intl, newUploadError, maxFileSize, serverUrl, files?.length, channelId, rootId]);
+    }, [intl, newUploadError, maxFileSize, serverUrl, files?.length, channelId, rootId, canUploadFiles, maxFileCount, handleUploadError]);
 
     // This effect mainly handles keeping clean the uploadErrorHandlers, and
     // reinstantiate them on component mount and file retry.
     useEffect(() => {
         let loadingFiles: FileInfo[] = [];
         if (files) {
-            loadingFiles = files.filter((v) => v.clientId && DraftUploadManager.isUploading(v.clientId));
+            loadingFiles = files.filter((v) => v.clientId && DraftEditPostUploadManager.isUploading(v.clientId));
         }
 
         for (const key of Object.keys(uploadErrorHandlers.current)) {
@@ -127,10 +121,10 @@ export default function DraftHandler(props: Props) {
 
         for (const file of loadingFiles) {
             if (!uploadErrorHandlers.current[file.clientId!]) {
-                uploadErrorHandlers.current[file.clientId!] = DraftUploadManager.registerErrorHandler(file.clientId!, newUploadError);
+                uploadErrorHandlers.current[file.clientId!] = DraftEditPostUploadManager.registerErrorHandler(file.clientId!, handleUploadError);
             }
         }
-    }, [files]);
+    }, [files, newUploadError, handleUploadError]);
 
     return (
         <SendHandler
@@ -150,6 +144,8 @@ export default function DraftHandler(props: Props) {
             updatePostInputTop={updatePostInputTop}
             updateValue={updateValue}
             setIsFocused={setIsFocused}
+            onPostCreated={onPostCreated}
+            location={location}
         />
     );
 }

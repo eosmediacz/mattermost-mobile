@@ -1,19 +1,14 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
-// See LICENSE.txt for license information.
 import React, {useMemo} from 'react';
 import {StyleSheet, View} from 'react-native';
-import FastImage from 'react-native-fast-image';
-import Animated from 'react-native-reanimated';
 
+import {ExpoImageAnimated} from '@components/expo_image';
 import ProfilePicture from '@components/profile_picture';
+import {urlSafeBase64Encode} from '@utils/security';
 
 import type UserModel from '@typings/database/models/servers/user';
-
-// @ts-expect-error FastImage does work with Animated.createAnimatedComponent
-const AnimatedFastImage = Animated.createAnimatedComponent(FastImage);
 
 type Props = {
     enablePostIconOverride: boolean;
@@ -41,9 +36,8 @@ const UserProfileAvatar = ({enablePostIconOverride, forwardRef, imageSize, user,
     if (enablePostIconOverride && userIconOverride) {
         return (
             <View style={styles.avatar}>
-                <AnimatedFastImage
-
-                    // @ts-expect-error TS expects old type ref
+                <ExpoImageAnimated
+                    id={`user-override-icon-${urlSafeBase64Encode(userIconOverride)}`}
                     ref={forwardRef}
                     style={styles.avatar}
                     source={{uri: userIconOverride}}

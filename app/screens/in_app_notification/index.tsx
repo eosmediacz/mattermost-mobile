@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {DeviceEventEmitter, Platform, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {GestureDetector, Gesture, GestureHandlerRootView} from 'react-native-gesture-handler';
 import {Navigation} from 'react-native-navigation';
@@ -12,9 +12,12 @@ import {openNotification} from '@actions/remote/notifications';
 import {Navigation as NavigationTypes} from '@constants';
 import DatabaseManager from '@database/manager';
 import {useIsTablet} from '@hooks/device';
+import useDidMount from '@hooks/did_mount';
+import {usePreventDoubleTap} from '@hooks/utils';
+import SecurityManager from '@managers/security_manager';
 import {dismissOverlay} from '@screens/navigation';
-import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity} from '@utils/theme';
+import {secureGetFromRecord} from '@utils/types';
 
 import Icon from './icon';
 import Server from './server';
@@ -62,6 +65,9 @@ const styles = StyleSheet.create({
     touchable: {
         flexDirection: 'row',
     },
+    gestureHandler: {
+        flex: 0,
+    },
 });
 
 const InAppNotification = ({componentId, serverName, serverUrl, notification}: InAppNotificationProps) => {
@@ -72,7 +78,7 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
     let insets = {top: 0};
     if (Platform.OS === 'ios') {
         // on Android we disable the safe area provider as it conflicts with the gesture system
-        // eslint-disable-next-line react-hooks/rules-of-hooks
+
         insets = useSafeAreaInsets();
     }
 
@@ -90,17 +96,17 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
         }
     };
 
-    const dismiss = () => {
+    const dismiss = useCallback(() => {
         cancelDismissTimer();
         dismissOverlay(componentId);
-    };
+    }, [componentId]);
 
-    const notificationTapped = preventDoubleTap(() => {
+    const notificationTapped = usePreventDoubleTap(useCallback(() => {
         tapped.current = true;
         dismiss();
-    });
+    }, [dismiss]));
 
-    useEffect(() => {
+    useDidMount(() => {
         initial.value = 0;
 
         dismissTimerRef.current = setTimeout(() => {
@@ -110,9 +116,9 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
         }, AUTO_DISMISS_TIME_MILLIS);
 
         return cancelDismissTimer;
-    }, []);
+    });
 
-    useEffect(() => {
+    useDidMount(() => {
         const didDismissListener = Navigation.events().registerComponentDidDisappearListener(async ({componentId: screen}) => {
             if (componentId === screen && tapped.current && serverUrl) {
                 const {channel_id} = notification.payload || {};
@@ -123,13 +129,13 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
         });
 
         return () => didDismissListener.remove();
-    }, []);
+    });
 
-    useEffect(() => {
+    useDidMount(() => {
         const listener = DeviceEventEmitter.addListener(NavigationTypes.NAVIGATION_SHOW_OVERLAY, dismiss);
 
         return () => listener.remove();
-    }, []);
+    });
 
     const animatedStyle = useAnimatedStyle(() => {
         const translateY = animate ? withTiming(-130, {duration: 300}) : withTiming(initial.value, {duration: 300});
@@ -142,17 +148,17 @@ const InAppNotification = ({componentId, serverName, serverUrl, notification}: I
     }, [animate, insets.top]);
 
     const message = notification.payload?.body || notification.payload?.message;
-    // eslint-disable-next-line new-cap
     const gesture = Gesture.Pan().activeOffsetY(-20).onStart(() => runOnJS(animateDismissOverlay)());
 
-    const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+    const database = secureGetFromRecord(DatabaseManager.serverDatabases, serverUrl)?.database;
 
     return (
-        <GestureHandlerRootView>
+        <GestureHandlerRootView style={styles.gestureHandler}>
             <GestureDetector gesture={gesture}>
                 <Animated.View
                     style={[styles.container, isTablet ? styles.tablet : undefined, animatedStyle]}
                     testID='in_app_notification.screen'
+                    nativeID={SecurityManager.getShieldScreenId(componentId)}
                 >
                     <View style={styles.flex}>
                         <TouchableOpacity

@@ -3,13 +3,14 @@
 
 import {withObservables} from '@nozbe/watermelondb/react';
 import {useNavigation} from '@react-navigation/native';
+import {applicationName} from 'expo-application';
 import React, {useEffect, useMemo} from 'react';
 import {defineMessages, useIntl} from 'react-intl';
 import {StyleSheet, View} from 'react-native';
-import DeviceInfo from 'react-native-device-info';
 import {from as from$} from 'rxjs';
 
 import DatabaseManager from '@database/manager';
+import useDidMount from '@hooks/did_mount';
 import {getActiveServerUrl} from '@queries/app/servers';
 import ContentView from '@share/components/content_view';
 import NoMemberships from '@share/components/error/no_memberships';
@@ -18,6 +19,8 @@ import CloseHeaderButton from '@share/components/header/close_header_button';
 import PostButton from '@share/components/header/post_button';
 import {hasChannels} from '@share/queries';
 import {setShareExtensionState, useShareExtensionServerUrl} from '@share/state';
+
+import type {SharedItem} from '@mattermost/rnshare';
 
 export const errorScreenMessages = defineMessages({
     label: {
@@ -68,7 +71,6 @@ const ShareScreen = ({hasChannelMemberships, initialServerUrl, files, linkPrevie
     }, [serverUrl]);
 
     useEffect(() => {
-        const applicationName = DeviceInfo.getApplicationName();
         navigator.setOptions({
             title: intl.formatMessage({
                 id: 'share_extension.share_screen.title',
@@ -77,9 +79,13 @@ const ShareScreen = ({hasChannelMemberships, initialServerUrl, files, linkPrevie
             {applicationName},
             ),
         });
+
+    // We only care about changes in the locale
+    // navigator should not change in the lifetime of this component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [intl.locale]);
 
-    useEffect(() => {
+    useDidMount(() => {
         setShareExtensionState({
             files,
             linkPreviewUrl,
@@ -91,7 +97,7 @@ const ShareScreen = ({hasChannelMemberships, initialServerUrl, files, linkPrevie
             headerLeft: () => (<CloseHeaderButton theme={theme}/>),
             headerRight: () => (<PostButton theme={theme}/>),
         });
-    }, []);
+    });
 
     return (
         <View style={styles.container}>

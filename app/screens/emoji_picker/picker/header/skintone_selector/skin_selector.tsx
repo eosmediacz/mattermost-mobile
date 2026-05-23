@@ -56,7 +56,7 @@ const SkinSelector = ({onSelectSkin, selected, skins}: Props) => {
         const code = Object.keys(skinCodes).find((key) => skinCodes[key] === skin) || 'default';
         await savePreferredSkinTone(serverUrl, code);
         onSelectSkin();
-    }, [serverUrl]);
+    }, [onSelectSkin, serverUrl]);
 
     return (
         <>
@@ -68,8 +68,7 @@ const SkinSelector = ({onSelectSkin, selected, skins}: Props) => {
                 />
             </View>
             <View style={[styles.skins, isTablet && {marginRight: 10}]}>
-                {Object.keys(skins).map((key) => {
-                    const name = skins[key];
+                {Object.entries(skins).map(([key, name]) => {
                     return (
                         <View
                             key={name}

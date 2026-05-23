@@ -8,20 +8,19 @@ import {
     View,
     Platform,
 } from 'react-native';
-import Animated, {useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 
 import {GalleryInit} from '@context/gallery';
 import {useTheme} from '@context/theme';
-import DraftUploadManager from '@managers/draft_upload_manager';
+import DraftEditPostUploadManager from '@managers/draft_upload_manager';
 import {fileToGalleryItem, openGalleryAtIndex} from '@utils/gallery';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
-import UploadItem from './upload_item';
+import UploadItem from './upload_item/upload_item_wrapper';
 
-const CONTAINER_HEIGHT_MAX = 67;
+const CONTAINER_HEIGHT_MAX = 80;
 const CONTAINER_HEIGHT_MIN = 0;
-const ERROR_HEIGHT_MAX = 20;
-const ERROR_HEIGHT_MIN = 0;
+const ERROR_FADE_IN_OUT_DURATION = 150;
 
 type Props = {
     currentUserId: string;
@@ -43,15 +42,12 @@ const getStyleSheet = makeStyleSheetFromTheme((theme) => {
             height: 0,
         },
         errorContainer: {
-            height: 0,
-        },
-        errorTextContainer: {
             marginTop: Platform.select({
                 ios: 4,
                 android: 2,
             }),
+            marginBottom: 6,
             marginHorizontal: 12,
-            flex: 1,
         },
         scrollView: {
             flex: 1,
@@ -79,15 +75,9 @@ function Uploads({
     const theme = useTheme();
     const style = getStyleSheet(theme);
 
-    const errorHeight = useSharedValue(ERROR_HEIGHT_MIN);
     const containerHeight = useSharedValue(files.length ? CONTAINER_HEIGHT_MAX : CONTAINER_HEIGHT_MIN);
-    const filesForGallery = useRef(files.filter((f) => !f.failed && !DraftUploadManager.isUploading(f.clientId!)));
-
-    const errorAnimatedStyle = useAnimatedStyle(() => {
-        return {
-            height: withTiming(errorHeight.value),
-        };
-    });
+    const filesForGallery = useRef(files.filter((f) => !f.failed && !DraftEditPostUploadManager.isUploading(f.clientId!)));
+    const hasFiles = files.length > 0;
 
     const containerAnimatedStyle = useAnimatedStyle(() => {
         return {
@@ -100,30 +90,22 @@ function Uploads({
     }), [files.length]);
 
     useEffect(() => {
-        filesForGallery.current = files.filter((f) => !f.failed && !DraftUploadManager.isUploading(f.clientId!));
+        filesForGallery.current = files.filter((f) => !f.failed && !DraftEditPostUploadManager.isUploading(f.clientId!));
     }, [files]);
 
     useEffect(() => {
-        if (uploadFileError) {
-            errorHeight.value = ERROR_HEIGHT_MAX;
-        } else {
-            errorHeight.value = ERROR_HEIGHT_MIN;
-        }
-    }, [uploadFileError]);
-
-    useEffect(() => {
-        if (files.length) {
+        if (hasFiles) {
             containerHeight.value = CONTAINER_HEIGHT_MAX;
             return;
         }
         containerHeight.value = CONTAINER_HEIGHT_MIN;
-    }, [files.length > 0]);
+    }, [containerHeight, hasFiles]);
 
     const openGallery = useCallback((file: FileInfo) => {
-        const items = filesForGallery.current.map((f) => fileToGalleryItem(f, currentUserId));
+        const items = filesForGallery.current.map((f) => fileToGalleryItem(f, currentUserId, undefined, 0, f.id || f.clientId));
         const index = filesForGallery.current.findIndex((f) => f.clientId === file.clientId);
         openGalleryAtIndex(galleryIdentifier, index, items, true);
-    }, [currentUserId, files]);
+    }, [currentUserId, galleryIdentifier]);
 
     const buildFilePreviews = () => {
         return files.map((file, index) => {
@@ -133,7 +115,7 @@ function Uploads({
                     galleryIdentifier={galleryIdentifier}
                     index={index}
                     file={file}
-                    key={file.clientId}
+                    key={file.clientId || file.id}
                     openGallery={openGallery}
                     rootId={rootId}
                 />
@@ -143,7 +125,10 @@ function Uploads({
 
     return (
         <GalleryInit galleryIdentifier={galleryIdentifier}>
-            <View style={style.previewContainer}>
+            <View
+                style={style.previewContainer}
+                testID='uploads'
+            >
                 <Animated.View
                     style={[style.fileContainer, fileContainerStyle, containerAnimatedStyle]}
                 >
@@ -157,19 +142,17 @@ function Uploads({
                     </ScrollView>
                 </Animated.View>
 
+                {Boolean(uploadFileError) &&
                 <Animated.View
-                    style={[style.errorContainer, errorAnimatedStyle]}
+                    entering={FadeIn.duration(ERROR_FADE_IN_OUT_DURATION)}
+                    exiting={FadeOut.duration(ERROR_FADE_IN_OUT_DURATION)}
+                    style={style.errorContainer}
                 >
-                    {Boolean(uploadFileError) &&
-                    <View style={style.errorTextContainer}>
-
-                        <Text style={style.warning}>
-                            {uploadFileError}
-                        </Text>
-
-                    </View>
-                    }
+                    <Text style={style.warning}>
+                        {uploadFileError}
+                    </Text>
                 </Animated.View>
+                }
             </View>
         </GalleryInit>
     );

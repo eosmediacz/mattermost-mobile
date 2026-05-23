@@ -5,18 +5,19 @@ import {useIntl} from 'react-intl';
 import {View, Text, TouchableOpacity} from 'react-native';
 import Animated, {runOnJS, SlideInDown, SlideOutDown} from 'react-native-reanimated';
 
-import {goToNPSChannel} from '@actions/remote/channel';
-import {giveFeedbackAction} from '@actions/remote/nps';
 import Button from '@components/button';
 import CompassIcon from '@components/compass_icon';
 import ShareFeedbackIllustration from '@components/illustrations/share_feedback';
-import {useServerUrl} from '@context/server';
+import AboutLinks from '@constants/about_links';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import useBackNavigation from '@hooks/navigate_back';
+import SecurityManager from '@managers/security_manager';
 import {dismissOverlay} from '@screens/navigation';
+import {logError} from '@utils/log';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
+import {tryOpenURL} from '@utils/url';
 
 import type {AvailableScreens} from '@typings/screens/navigation';
 
@@ -90,13 +91,16 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
     },
 }));
 
+function logFeedbackForumOpenError(error: unknown) {
+    logError('ShareFeedback.onPressYes', error);
+}
+
 const ShareFeedback = ({
     componentId,
 }: Props) => {
     const intl = useIntl();
     const theme = useTheme();
     const styles = getStyleSheet(theme);
-    const serverUrl = useServerUrl();
 
     const [show, setShow] = useState(true);
 
@@ -110,10 +114,9 @@ const ShareFeedback = ({
     const onPressYes = useCallback(async () => {
         close(async () => {
             await dismissOverlay(componentId);
-            await goToNPSChannel(serverUrl);
-            giveFeedbackAction(serverUrl);
+            tryOpenURL(AboutLinks.FEEDBACK_FORUM, logFeedbackForumOpenError);
         });
-    }, [close, intl, serverUrl]);
+    }, [close, componentId]);
 
     const onPressNo = useCallback(() => {
         close(() => dismissOverlay(componentId));
@@ -131,10 +134,13 @@ const ShareFeedback = ({
         if (finished) {
             runOnJS(doAfterAnimation)();
         }
-    }), []);
+    }), [doAfterAnimation]);
 
     return (
-        <View style={styles.root}>
+        <View
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
+            style={styles.root}
+        >
             <View
                 style={styles.container}
                 testID='rate_app.screen'
@@ -170,14 +176,14 @@ const ShareFeedback = ({
                                     emphasis={'tertiary'}
                                     onPress={onPressNo}
                                     text={intl.formatMessage({id: 'share_feedback.button.no', defaultMessage: 'No, thanks'})}
-                                    backgroundStyle={styles.leftButton}
+                                    buttonContainerStyle={styles.leftButton}
                                 />
                                 <Button
                                     theme={theme}
                                     size={'lg'}
                                     onPress={onPressYes}
                                     text={intl.formatMessage({id: 'share_feedback.button.yes', defaultMessage: 'Yes'})}
-                                    backgroundStyle={styles.rightButton}
+                                    buttonContainerStyle={styles.rightButton}
                                 />
                             </View>
                         </View>

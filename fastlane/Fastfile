@@ -181,6 +181,17 @@ lane :configure do
     json['ShowOnboarding'] = true
   end
 
+  # Collect network request information with different request group (notifications, login, cold start, etc)
+  if ENV['COLLECT_NETWORK_METRICS'] == 'true'
+    json['CollectNetworkMetrics'] = true
+  end
+
+  # Configure the auth schemes
+  auth_scheme = ENV['APP_AUTH_SCHEME'].to_s.empty? ? 'mmauth' : ENV['APP_AUTH_SCHEME']
+  auth_scheme_dev = ENV['APP_AUTH_SCHEME_BETA'].to_s.empty? ? 'mmauthbeta' : ENV['APP_AUTH_SCHEME_BETA']
+  json["AuthUrlScheme"] = auth_scheme.end_with?('://') ? auth_scheme : "#{auth_scheme}://"
+  json["AuthUrlSchemeDev"] = auth_scheme_dev.end_with?('://') ? auth_scheme_dev : "#{auth_scheme_dev}://"
+
   # Save the config.json file
   save_json_as_file('../dist/assets/config.json', json)
 
@@ -213,12 +224,17 @@ lane :link_sentry do |options|
   end
 end
 
+# Uploads built files to S3. Two modes via options[:s3_client_oidc]:
+# - s3_client_oidc: true  → IAM/OIDC (default creds), bucket from AWS_BUCKET_NAME (set by workflow to new bucket).
+# - s3_client_oidc: false or omitted → static credentials (AWS_ACCESS_KEY_ID/SECRET), bucket from AWS_BUCKET_NAME (e.g. build-pr).
+# Example: upload_file_to_s3({:os_type => "ios", :s3_client_oidc => true})
 desc 'Upload file to s3'
 lane :upload_file_to_s3 do |options|
   os_type = options[:os_type].downcase
   extensions = os_type == "android" ? ["*.apk", "*.aab"] : ["*.ipa"]
   build_folder_path = Dir[File.expand_path('..')].first
   files = []
+  s3_client_oidc = options[:s3_client_oidc] == true
 
   unless options[:file].nil? || options[:file].empty?
     files.push("#{build_folder_path}/#{options[:file]}")
@@ -248,12 +264,28 @@ lane :upload_file_to_s3 do |options|
 
     s3_region = ENV['AWS_REGION']
     s3_bucket_name = ENV['AWS_BUCKET_NAME']
-    s3_folder = is_build_pr ?
-      "#{ENV['AWS_FOLDER_NAME']}/#{ENV['BRANCH_TO_BUILD']}" :
-      "#{ENV['AWS_FOLDER_NAME']}/#{version_number}/#{build_number}"
+    s3_bucket_dns_name = ENV['AWS_BUCKET_DNS_NAME']
 
-    s3 = Aws::S3::Resource.new(region: s3_region)
-    s3_bucket = s3.bucket(s3_bucket_name)
+    if is_build_pr
+      # Get the current git commit SHA (short version)
+      commit_sha = sh("git rev-parse --short HEAD").strip
+      s3_folder = "#{ENV['AWS_FOLDER_NAME']}/#{ENV['BRANCH_TO_BUILD']}/#{commit_sha}"
+    else
+      s3_folder = "#{ENV['AWS_FOLDER_NAME']}/#{version_number}/#{build_number}"
+    end
+    if s3_client_oidc
+      # Client for S3 bucket assumes role via GitHub Actions OIDC
+      s3_client = Aws::S3::Client.new(region: s3_region)
+      UI.message("Set S3 Client to upload to S3 bucket using OIDC")
+    else
+      s3_client = Aws::S3::Client.new(
+        region: s3_region,
+        access_key_id: ENV['AWS_ACCESS_KEY_ID'],
+        secret_access_key: ENV['AWS_SECRET_ACCESS_KEY']
+      )
+      UI.message("Set S3 Client to upload to S3 bucket: #{s3_bucket_name} using static credentials")
+    end
+    transfer_manager = Aws::S3::TransferManager.new(client: s3_client)
     mutex = Mutex.new
     threads = []
     file_number = 0
@@ -271,9 +303,10 @@ lane :upload_file_to_s3 do |options|
 
           filename = File.basename(file)
           puts "[#{Thread.current["file_number"]}/#{total_files}] #{filename} uploading..."
-          s3_file = s3_bucket.object("#{s3_folder}/#{filename}")
-          s3_file.upload_file("#{file}")
-          links.push("https://#{s3_bucket_name}/#{s3_folder}/#{filename}")
+          s3_key = "#{s3_folder}/#{filename}"
+          transfer_manager.upload_file(file, bucket: s3_bucket_name, key: s3_key)
+          s3_bucket_dns_name = is_build_pr ? s3_bucket_name : s3_bucket_dns_name
+          links.push("https://#{s3_bucket_dns_name}/#{s3_key}")
         end
       }
     end
@@ -287,8 +320,12 @@ lane :upload_file_to_s3 do |options|
         plist_template = File.read('plist.erb')
         plist_body = ERB.new(plist_template).result(binding)
 
-        plist_obj = s3_bucket.object("#{s3_folder}/#{plist_file}")
-        plist_obj.put(body: plist_body)
+        s3_client.put_object(
+          bucket: s3_bucket_name,
+          key: "#{s3_folder}/#{plist_file}",
+          body: plist_body,
+          content_type: 'application/xml'
+        )
 
         install_url = "itms-services://?action=download-manifest&url=https://#{s3_bucket_name}/#{s3_folder}/#{plist_file}"
       end
@@ -299,7 +336,7 @@ lane :upload_file_to_s3 do |options|
                         })
     end
 
-    if options[:file] == 'Mattermost-simulator-x86_64.app.zip'
+    if options[:file]&.start_with?('Mattermost-simulator-') && options[:file]&.end_with?('.app.zip')
       pretext = '#### New iOS build for VM/Simulator'
       msg = "Download link: #{links.first}"
       send_message_to_mattermost({
@@ -329,7 +366,6 @@ lane :github do
     android = [
       "    * [Mattermost arm64-v8a](https://releases.mattermost.com/mattermost-mobile/#{version}/#{build}/Mattermost-arm64-v8a.apk)",
       "    * [Mattermost armeabi-v7a](https://releases.mattermost.com/mattermost-mobile/#{version}/#{build}/Mattermost-armeabi-v7a.apk)",
-      "    * [Mattermost Universal](https://releases.mattermost.com/mattermost-mobile/#{version}/#{build}/Mattermost-universal.apk)",
       "    * [Mattermost x86](https://releases.mattermost.com/mattermost-mobile/#{version}/#{build}/Mattermost-x86.apk)",
       "    * [Mattermost x86_64](https://releases.mattermost.com/mattermost-mobile/#{version}/#{build}/Mattermost-x86_64.apk)",
     ]
@@ -361,7 +397,7 @@ platform :ios do
       api_key = get_apple_api_key()
       match(
           api_key: api_key,
-          type: ENV['MATCH_TYPE'] || 'adhoc'
+          type: ENV['MATCH_TYPE'] || 'adhoc',
       )
     end
   end
@@ -371,11 +407,10 @@ platform :ios do
     unless configured
       configure
     end
-    update_identifiers
+    update_settings
     replace_assets
     link_sentry({:os_type => "ios"})
     build_ios
-    upload_file_to_s3({:os_type => "ios"})
   end
 
   desc 'Build an unsigned ipa'
@@ -387,7 +422,7 @@ platform :ios do
     ENV['BUILD_FOR_RELEASE'] = 'true'
     ENV['APP_SCHEME'] = 'mattermost'
 
-    update_identifiers
+    update_settings
     replace_assets
 
     build_ios_unsigned_or_simulator(
@@ -397,40 +432,134 @@ platform :ios do
     )
   end
 
-  lane :simulator do
+  lane :simulator do |options|
     UI.success('Building iOS app for simulator')
 
-    output_file = "Mattermost-simulator-x86_64.app.zip"
+    # Detect the host architecture
+    host_arch = `uname -m`.strip
+
+    # Use arm64 for Apple Silicon (arm64), x86_64 for Intel
+    if host_arch == "arm64"
+      build_arch = "arm64"
+      output_file = "Mattermost-simulator-arm64.app.zip"
+    else
+      build_arch = "x86_64"
+      output_file = "Mattermost-simulator-x86_64.app.zip"
+    end
+
+    UI.message("Building for #{build_arch} architecture on #{host_arch} host")
 
     build_ios_unsigned_or_simulator(
-      more_xc_args: "-sdk iphonesimulator -arch x86_64",
+      more_xc_args: "-sdk iphonesimulator -arch #{build_arch}",
       rel_build_dir: "Release-iphonesimulator",
       output_file: output_file,
     )
-
-    upload_file_to_s3({
-      :os_type => "ios",
-      :file => output_file
-    })
   end
 
-  lane :update_identifiers do
-    # Set the name for the app and share extension
-    app_name =  ENV['APP_NAME'] || 'Mattermost Beta'
+  desc 'Upload artifacts to S3'
+  lane :upload_artifacts_to_s3 do |options|
+    output_file = options[:output_file]
+    s3_client_oidc = options[:s3_client_oidc] == true
+    UI.message("Uploading to S3 bucket using #{s3_client_oidc ? 'IAM/OIDC' : 'static credentials'}..." + (output_file ? " file: #{output_file}" : ""))
+    begin
+      if output_file && !output_file.empty?
+        upload_file_to_s3({
+          :os_type => "ios",
+          :file => output_file,
+          :s3_client_oidc => s3_client_oidc
+        })
+      else
+        upload_file_to_s3({
+          :os_type => "ios",
+          :s3_client_oidc => s3_client_oidc
+        })
+      end
+    rescue SyntaxError, StandardError
+      UI.user_error!("Failed to upload to S3 bucket")
+    end
+  end
+
+  lane :update_settings do
+    # Configure Main app settings
+    app_name = ENV['APP_NAME'] || 'Mattermost Beta'
+    app_bundle_id = ENV['MAIN_APP_IDENTIFIER'] || 'com.mattermost.rnbeta'
+    app_group_id = ENV['IOS_APP_GROUP'] || 'group.com.mattermost.rnbeta'
+    icloud_container = ENV['IOS_ICLOUD_CONTAINER'] || 'iCloud.com.mattermost.rnbeta'
+    app_scheme = ENV['APP_SCHEME'] || 'mattermost'
+    app_auth_scheme = get_auth_scheme
+    keychain_group = "$(AppIdentifierPrefix)#{ENV["IOS_KEYCHAIN_GROUP"] || app_bundle_id}"
+    
     update_info_plist(
-        xcodeproj: './ios/Mattermost.xcodeproj',
-        plist_path: 'Mattermost/Info.plist',
-        display_name: app_name
+      xcodeproj: './ios/Mattermost.xcodeproj',
+      plist_path: 'Mattermost/Info.plist',
+      block: proc do |plist|
+        plist["CFBundleDisplayName"] = app_name
+        plist["CFBundleIdentifier"] = app_bundle_id
+        plist["AppGroupIdentifier"] = app_group_id
+      end
     )
 
+    find_replace_string(
+        path_to_file: './ios/Mattermost.xcodeproj/project.pbxproj',
+        old_string: 'com.mattermost.rnbeta',
+        new_string: app_bundle_id
+    )
+
+    update_icloud_container_identifiers(
+        entitlements_file: './ios/Mattermost/Mattermost.entitlements',
+        icloud_container_identifiers: [icloud_container]
+    )
+
+    update_app_group_identifiers(
+        entitlements_file: './ios/Mattermost/Mattermost.entitlements',
+        app_group_identifiers: [app_group_id]
+    )
+
+    update_url_schemes(
+      path: './ios/Mattermost/Info.plist',
+      url_schemes: [app_scheme, app_auth_scheme]
+    )
+
+    update_keychain_access_groups(
+        entitlements_file: './ios/Mattermost/Mattermost.entitlements',
+        identifiers: [keychain_group],
+    )
+
+    # Configure Share extension settings
+    extension_bundle_id = ENV['EXTENSION_APP_IDENTIFIER'] || 'com.mattermost.rnbeta.MattermostShare'
+    
     update_info_plist(
       xcodeproj: './ios/Mattermost.xcodeproj',
       plist_path: 'MattermostShare/Info.plist',
-      display_name: app_name
+      block: proc do |plist|
+        plist["CFBundleDisplayName"] = app_name
+        plist["CFBundleIdentifier"] = extension_bundle_id
+        plist["AppGroupIdentifier"] = app_group_id
+      end
     )
 
-    # Set the notification service extension bundle identifier
+    find_replace_string(
+        path_to_file: './ios/Mattermost.xcodeproj/project.pbxproj',
+        old_string: 'com.mattermost.rnbeta.MattermostShare',
+        new_string: extension_bundle_id
+    )
+
+    update_app_group_identifiers(
+      entitlements_file: './ios/MattermostShare/MattermostShare.entitlements',
+      app_group_identifiers: [app_group_id]
+    )
+
+    # Configure Notification Service settings
     notification_bundle_id = ENV['NOTIFICATION_SERVICE_IDENTIFIER'] || 'com.mattermost.rnbeta.NotificationService'
+    update_info_plist(
+      xcodeproj: './ios/Mattermost.xcodeproj',
+      plist_path: 'NotificationService/Info.plist',
+      block: proc do |plist|
+        plist["CFBundleIdentifier"] = notification_bundle_id
+        plist["AppGroupIdentifier"] = app_group_id
+      end
+    )
+
     update_app_identifier(
         xcodeproj: './ios/Mattermost.xcodeproj',
         plist_path: 'NotificationService/Info.plist',
@@ -443,47 +572,12 @@ platform :ios do
         new_string: notification_bundle_id
     )
 
-    # Set the share extension bundle identifier
-    extension_bundle_id = ENV['EXTENSION_APP_IDENTIFIER'] || 'com.mattermost.rnbeta.MattermostShare'
-    update_app_identifier(
-        xcodeproj: './ios/Mattermost.xcodeproj',
-        plist_path: 'MattermostShare/Info.plist',
-        app_identifier: extension_bundle_id
+    update_app_group_identifiers(
+        entitlements_file: './ios/NotificationService/NotificationService.entitlements',
+        app_group_identifiers: [app_group_id]
     )
 
-    find_replace_string(
-        path_to_file: './ios/Mattermost.xcodeproj/project.pbxproj',
-        old_string: 'com.mattermost.rnbeta.MattermostShare',
-        new_string: extension_bundle_id
-    )
-
-    # Set the app bundle id
-    app_bundle_id = ENV['MAIN_APP_IDENTIFIER'] || 'com.mattermost.rnbeta'
-    update_app_identifier(
-        xcodeproj: './ios/Mattermost.xcodeproj',
-        plist_path: 'Mattermost/Info.plist',
-        app_identifier: app_bundle_id
-    )
-
-    find_replace_string(
-        path_to_file: './ios/Mattermost.xcodeproj/project.pbxproj',
-        old_string: 'com.mattermost.rnbeta',
-        new_string: app_bundle_id
-    )
-
-    # Set the deep link prefix
-    app_scheme = ENV['APP_SCHEME'] || 'mattermost'
-    app_auth_scheme = ENV['BETA_BUILD'] == 'true' ? 'mmauthbeta' : 'mmauth'
-    update_info_plist(
-        xcodeproj: './ios/Mattermost.xcodeproj',
-        plist_path: 'Mattermost/Info.plist',
-        block: proc do |plist|
-          urlScheme = plist["CFBundleURLTypes"].find{|scheme| scheme["CFBundleURLName"] == "com.mattermost"}
-          urlScheme[:CFBundleURLSchemes] = [app_scheme, app_auth_scheme]
-        end
-    )
-
-    # If set update the development team
+    # Update the project Team ID if provided
     unless ENV['FASTLANE_TEAM_ID'].nil? || ENV['FASTLANE_TEAM_ID'].empty?
     update_project_team(
         path: './ios/Mattermost.xcodeproj',
@@ -491,53 +585,59 @@ platform :ios do
     )
     end
 
-    # Set the ICloud container
-    icloud_container = ENV['IOS_ICLOUD_CONTAINER'] || 'iCloud.com.mattermost.rnbeta'
-    update_icloud_container_identifiers(
-        entitlements_file: './ios/Mattermost/Mattermost.entitlements',
-        icloud_container_identifiers: [icloud_container]
-    )
+    ########################
 
-    # Set the app group id to share data between the app and the extension
-    app_group_id = ENV['IOS_APP_GROUP'] || 'group.com.mattermost.rnbeta'
-    update_app_group_identifiers(
-        entitlements_file: './ios/Mattermost/Mattermost.entitlements',
-        app_group_identifiers: [app_group_id]
-    )
+    # Configure Intune
+    intune_enabled = ENV['INTUNE_ENABLED'] == 'true' || ENV['INTUNE_ENABLED'] == '1'
+    if intune_enabled
+      intune_client_id = ENV['INTUNE_CLIENT_ID']
+      intune_redirect_uri = "msauth.#{app_bundle_id}://auth"
 
-    update_info_plist(
-      xcodeproj: './ios/Mattermost.xcodeproj',
-      plist_path: 'Mattermost/Info.plist',
-      block: proc do |plist|
-        plist["AppGroupIdentifier"] = app_group_id
-      end
-    )
+      update_info_plist(
+          xcodeproj: './ios/Mattermost.xcodeproj',
+          plist_path: 'Mattermost/Info.plist',
+          block: proc do |plist|
+            urlScheme = plist["CFBundleURLTypes"].find{|scheme| scheme["CFBundleURLName"] == "com.mattermost"}
+            urlScheme[:CFBundleURLSchemes] = [
+              app_scheme,
+              app_auth_scheme,
+              "msauth.#{app_bundle_id}",
+              "#{app_scheme}-intunemam",
+              "#{app_auth_scheme}-intunemam", 
+              "msauth.com.microsoft.intunemam",
+              "msauth.com.microsoft.intunemam-intunemam"
+            ]
 
-    update_app_group_identifiers(
-        entitlements_file: './ios/NotificationService/NotificationService.entitlements',
-        app_group_identifiers: [app_group_id]
-    )
+            plist["IntuneMAMSettings"] = {
+              "AppGroupIdentifiers" => [ENV['IOS_APP_GROUP'] || 'group.com.mattermost.rnbeta'],
+              "MAMTelemetryDisabled" => true,
+              "MultiIdentity" => true,
+              "ADALLogOverrideDisabled" => true,
+              "HooksAlwaysEnabled" => true,
+              "ADALClientId" => intune_client_id,
+              "ADALRedirectUri" => intune_redirect_uri,
+              "MaxFileProtectionLevel" => "NSFileProtectionCompleteUntilFirstUserAuthentication"
+            }
 
-    update_info_plist(
-      xcodeproj: './ios/Mattermost.xcodeproj',
-      plist_path: 'NotificationService/Info.plist',
-      block: proc do |plist|
-        plist["AppGroupIdentifier"] = app_group_id
-      end
-    )
+            plist["LSApplicationQueriesSchemes"] = [
+              "scmx", "smsec", "microsoft-edge-http", "microsoft-edge-http-intunemam",
+              "lookoutwork-ase", "mvisionmobile", "skycure", "companyportal", "lacoonsecurity",
+              "intunemam-mtd", "msauthv2", "wandera", "betteractiveshield", "msauthv3",
+              "microsoft-edge-https", "microsoft-edge-https-intunemam"
+            ]
+          end
+      )
 
-    update_app_group_identifiers(
-      entitlements_file: './ios/MattermostShare/MattermostShare.entitlements',
-      app_group_identifiers: [app_group_id]
-    )
-
-    update_info_plist(
-      xcodeproj: './ios/Mattermost.xcodeproj',
-      plist_path: 'MattermostShare/Info.plist',
-      block: proc do |plist|
-        plist["AppGroupIdentifier"] = app_group_id
-      end
-    )
+      update_keychain_access_groups(
+          entitlements_file: './ios/Mattermost/Mattermost.entitlements',
+          identifiers: [
+            keychain_group,
+            "$(AppIdentifierPrefix)com.microsoft.intune.mam",
+            "$(AppIdentifierPrefix)com.microsoft.adalcache",
+            "$(AppIdentifierPrefix)#{app_bundle_id}.intunemam"
+          ],
+      )
+    end
 
     # Sync the provisioning profiles using match
     if ENV['SYNC_PROVISIONING_PROFILES'] == 'true'
@@ -648,7 +748,7 @@ platform :ios do
     app_name_sub = app_name.gsub(" ", "_")
     config_mode = ENV['BUILD_FOR_RELEASE'] == 'true' ? 'Release' : 'Debug'
     method = ENV['IOS_BUILD_EXPORT_METHOD'].nil? || ENV['IOS_BUILD_EXPORT_METHOD'].empty? ? 'ad-hoc' : ENV['IOS_BUILD_EXPORT_METHOD']
-   
+
     # Need to add xcargs to only notification and share extensions
     xcargs = ENV['SENTRY_ENABLED'] == 'true' ? "SENTRY_DSN_IOS='#{ENV['SENTRY_DSN_IOS']}' SENTRY_ENABLED='#{ENV['SENTRY_ENABLED']}'" : ''
 
@@ -680,7 +780,7 @@ platform :ios do
     ENV['BUILD_FOR_RELEASE'] = 'true'
     ENV['APP_SCHEME'] = 'mattermost'
 
-    update_identifiers
+    update_settings
     replace_assets
 
     sh "rm -rf #{ios_build_dir}/"
@@ -699,10 +799,10 @@ platform :android do
     end
     update_identifiers
     replace_assets
+    pinned_certificates
     link_sentry({:os_type => "android"})
     build_android
     move_android_to_root
-    upload_file_to_s3({:os_type => "android"})
   end
 
   desc 'Build an unsigned apk'
@@ -726,6 +826,17 @@ platform :android do
     sh "mv #{lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]} #{Pathname.new(File.expand_path(File.dirname(__FILE__))).parent.to_s}/Mattermost-unsigned.apk"
   end
 
+  desc 'Upload artifacts to S3'
+  lane :upload_artifacts_to_s3 do |options|
+    s3_client_oidc = options[:s3_client_oidc] == true
+    UI.message("Uploading to S3 bucket using #{s3_client_oidc ? 'IAM/OIDC' : 'static credentials'}")
+    begin
+      upload_file_to_s3({:os_type => "android", :s3_client_oidc => s3_client_oidc})
+    rescue SyntaxError, StandardError
+      UI.user_error!("Failed to upload to S3 bucket")
+    end
+  end
+
   lane :update_identifiers do
     # Set the name for the app
     app_name =  ENV['APP_NAME'] || 'Mattermost Beta'
@@ -747,13 +858,14 @@ platform :android do
       new_string: "scheme=\'#{app_scheme}\'"
     )
 
-    if ENV['BETA_BUILD'] != 'true'
-      find_replace_string(
-          path_to_file: "./android/app/src/main/AndroidManifest.xml",
-          old_string: 'scheme="mmauthbeta"',
-          new_string: 'scheme="mmauth"',
-      )
-    end
+    
+    app_auth_scheme = get_auth_scheme
+
+    find_replace_string(
+        path_to_file: "./android/app/src/main/AndroidManifest.xml",
+        old_string: 'scheme="mmauthbeta"',
+        new_string: "scheme=\"#{app_auth_scheme}\"",
+    )
 
     helpers_dir = './android/app/src/main/java/com/mattermost/helpers/'
     beta_dir = './android/app/src/main/java/com/mattermost/rnbeta/'
@@ -812,6 +924,12 @@ platform :android do
       sh 'cp -R ../dist/assets/release/icons/android/* ../android/app/src/main/res/'
       sh 'cp -R ../dist/assets/release/splash_screen/android/* ../android/app/src/main/res/'
     end
+    sh 'mkdir -p ../android/app/src/main/res/raw/'
+    sh 'cp -R ../assets/sounds/* ../android/app/src/main/res/raw/'
+  end
+
+  lane :pinned_certificates do
+    sh 'cp -R ../assets/certs/ ../android/app/src/main/assets/certs'
   end
 
   lane :deploy do |options|
@@ -854,7 +972,7 @@ platform :android do
           project_dir: 'android/',
           properties: {
             'separateApk' => ENV["SEPARATE_APKS"] || false,
-            'universalApk' => ENV["SEPARATE_APKS"] || false,
+            'universalApk' => ENV["UNIVERSAL_APK"] || false,
           }
       )
     end
@@ -877,7 +995,7 @@ platform :android do
     if build_task.include?("assemble")
       apks = lane_context[SharedValues::GRADLE_ALL_APK_OUTPUT_PATHS]
       json_path = lane_context[SharedValues::GRADLE_OUTPUT_JSON_OUTPUT_PATH]
-  
+
       if json_path.nil? || json_path.empty?
         dir_name = File.dirname(apks.first)
         json_path = Dir.glob(File.join(dir_name, '*.json')).first
@@ -911,6 +1029,14 @@ platform :android do
       sh "mv #{aab} #{new_aab_path}"
       UI.message("AAB PATH \"#{new_aab_path}\"")
     end
+  end
+end
+
+def get_auth_scheme
+  if ENV['BETA_BUILD'] == 'true'
+    ENV['APP_AUTH_SCHEME_BETA'].to_s.empty? ? 'mmauthbeta' : ENV['APP_AUTH_SCHEME_BETA']
+  else
+    ENV['APP_AUTH_SCHEME'].to_s.empty? ? 'mmauth' : ENV['APP_AUTH_SCHEME']
   end
 end
 
@@ -1007,7 +1133,7 @@ def submit_to_testflight(ipa_path)
   version_number = get_version_number(xcodeproj: './ios/Mattermost.xcodeproj', target: 'Mattermost')
   build_number = get_build_number(xcodeproj: './ios/Mattermost.xcodeproj')
   s3_folder = "#{ENV['AWS_FOLDER_NAME']}/#{version_number}/#{build_number}"
-  public_link = "https://#{ENV['AWS_BUCKET_NAME']}/#{s3_folder}/#{filename}"
+  public_link = "https://#{ENV['AWS_BUCKET_DNS_NAME']}/#{s3_folder}/#{filename}"
 
 
   # Send a build message to Mattermost
@@ -1066,7 +1192,7 @@ def submit_to_google_play(file_path)
   version_number = android_get_version_name(gradle_file: './android/app/build.gradle')
   build_number = android_get_version_code(gradle_file: './android/app/build.gradle')
   s3_folder = "#{ENV['AWS_FOLDER_NAME']}/#{version_number}/#{build_number}"
-  public_path = "https://#{ENV['AWS_BUCKET_NAME']}/#{s3_folder}"
+  public_path = "https://#{ENV['AWS_BUCKET_DNS_NAME']}/#{s3_folder}"
   links = (filenames.map { |f| "* #{public_path}/#{f}"}).join("\n")
 
   # Send a build message to Mattermost

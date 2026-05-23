@@ -1,14 +1,15 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {Button} from '@rneui/base';
 import React, {useCallback, useRef} from 'react';
-import Button from 'react-native-button';
 
 import {postActionWithCookie} from '@actions/remote/integrations';
 import {useServerUrl} from '@context/server';
-import {getStatusColors} from '@utils/message_attachment_colors';
-import {preventDoubleTap} from '@utils/tap';
+import {usePreventDoubleTap} from '@hooks/utils';
+import {getStatusColors} from '@utils/message_attachment';
 import {makeStyleSheetFromTheme, changeOpacity} from '@utils/theme';
+import {secureGetFromRecord} from '@utils/types';
 
 import ActionButtonText from './action_button_text';
 
@@ -26,6 +27,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     const STATUS_COLORS = getStatusColors(theme);
     return {
         button: {
+            backgroundColor: 'transparent',
             borderRadius: 4,
             borderColor: changeOpacity(STATUS_COLORS.default, 0.25),
             borderWidth: 2,
@@ -54,25 +56,30 @@ const ActionButton = ({buttonColor, cookie, disabled, id, name, postId, theme}: 
     let customButtonStyle;
     let customButtonTextStyle;
 
-    const onPress = useCallback(preventDoubleTap(async () => {
+    const onPress = usePreventDoubleTap(useCallback(async () => {
         if (!presssed.current) {
             presssed.current = true;
             await postActionWithCookie(serverUrl, postId, id, cookie || '');
             presssed.current = false;
         }
-    }), [id, postId, cookie]);
+    }, [serverUrl, postId, id, cookie]));
 
+    const STATUS_COLORS = getStatusColors(theme);
+    let hexColor: string | undefined;
     if (buttonColor) {
-        const STATUS_COLORS = getStatusColors(theme);
-        const hexColor = STATUS_COLORS[buttonColor] || theme[buttonColor] || buttonColor;
-        customButtonStyle = {borderColor: changeOpacity(hexColor, 0.25), backgroundColor: '#ffffff'};
+        hexColor = secureGetFromRecord(STATUS_COLORS, buttonColor) || secureGetFromRecord(theme, buttonColor) || buttonColor;
+    } else {
+        hexColor = secureGetFromRecord(STATUS_COLORS, 'default');
+    }
+    if (hexColor) {
+        customButtonStyle = {borderColor: changeOpacity(hexColor, 0.16), backgroundColor: changeOpacity(hexColor, 0.08), borderWidth: 0};
         customButtonTextStyle = {color: hexColor};
     }
 
     return (
         <Button
-            containerStyle={[style.button, customButtonStyle]}
-            disabledContainerStyle={style.buttonDisabled}
+            buttonStyle={[style.button, customButtonStyle]}
+            disabledStyle={style.buttonDisabled}
             onPress={onPress}
             disabled={disabled}
         >

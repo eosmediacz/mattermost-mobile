@@ -8,6 +8,7 @@ import {FlatList, StyleSheet, View, type ListRenderItemInfo} from 'react-native'
 
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
+import {useBottomSheetListsFix} from '@hooks/bottom_sheet_lists_fix';
 import {useIsTablet} from '@hooks/device';
 import {BUTTON_HEIGHT} from '@screens/bottom_sheet';
 import BottomSheetContent from '@screens/bottom_sheet/content';
@@ -42,10 +43,11 @@ const ServerList = ({servers}: Props) => {
     const isTablet = useIsTablet();
     const serverUrl = useServerUrl();
     const theme = useTheme();
+    const {enabled, panResponder} = useBottomSheetListsFix();
 
     const onAddServer = useCallback(async () => {
         addNewServer(theme);
-    }, [servers]);
+    }, [theme]);
 
     const renderServer = useCallback(({item: t, index}: ListRenderItemInfo<ServersModel>) => {
         return (
@@ -55,7 +57,7 @@ const ServerList = ({servers}: Props) => {
                 server={t}
             />
         );
-    }, []);
+    }, [serverUrl]);
 
     const List = useMemo(() => (isTablet ? FlatList : BottomSheetFlatList), [isTablet]);
 
@@ -76,6 +78,8 @@ const ServerList = ({servers}: Props) => {
                     renderItem={renderServer}
                     keyExtractor={keyExtractor}
                     contentContainerStyle={styles.contentContainer}
+                    scrollEnabled={enabled}
+                    {...panResponder.panHandlers}
                 />
             </View>
         </BottomSheetContent>

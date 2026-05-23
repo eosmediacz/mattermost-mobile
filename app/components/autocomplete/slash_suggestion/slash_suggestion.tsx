@@ -1,8 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {debounce} from 'lodash';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useIntl} from 'react-intl';
 import {
     FlatList,
@@ -13,7 +12,7 @@ import {
 
 import {fetchSuggestions} from '@actions/remote/command';
 import {useServerUrl} from '@context/server';
-import analytics from '@managers/analytics';
+import {useDebounce} from '@hooks/utils';
 import IntegrationsManager from '@managers/integrations_manager';
 
 import {AppCommandParser} from './app_command_parser/app_command_parser';
@@ -92,7 +91,7 @@ const SlashSuggestion = ({
         onShowingChange(Boolean(matches.length));
     }, [onShowingChange]);
 
-    const runFetch = useMemo(() => debounce(async (sUrl: string, term: string, tId: string, cId: string, rId?: string) => {
+    const runFetch = useDebounce(useCallback(async (sUrl: string, term: string, tId: string, cId: string, rId?: string) => {
         try {
             const res = await fetchSuggestions(sUrl, term, tId, cId, rId);
             if (!mounted.current) {
@@ -109,7 +108,7 @@ const SlashSuggestion = ({
         } catch {
             updateSuggestions(emptySuggestionList);
         }
-    }, 200), [updateSuggestions]);
+    }, [updateSuggestions]), 200);
 
     const getAppBaseCommandSuggestions = (pretext: string): AutocompleteSuggestion[] => {
         appCommandParser.current.setChannelContext(channelId, currentTeamId, rootId);
@@ -138,8 +137,6 @@ const SlashSuggestion = ({
     };
 
     const completeSuggestion = useCallback((command: string) => {
-        analytics.get(serverUrl)?.trackCommand('complete_suggestion', `/${command} `);
-
         // We are going to set a double / on iOS to prevent the auto correct from taking over and replacing it
         // with the wrong value, this is a hack but I could not found another way to solve it
         let completedDraft = `/${command} `;
@@ -156,7 +153,7 @@ const SlashSuggestion = ({
                 updateValue(completedDraft.replace(`//${command} `, `/${command} `));
             });
         }
-    }, [updateValue, serverUrl]);
+    }, [updateValue]);
 
     const renderItem = useCallback(({item}: {item: AutocompleteSuggestion}) => (
         <SlashSuggestionItem
@@ -200,6 +197,8 @@ const SlashSuggestion = ({
         }
 
         runFetch(serverUrl, value, currentTeamId, channelId, rootId);
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value, commands]);
 
     useEffect(() => {

@@ -3,7 +3,9 @@
 
 import React from 'react';
 import {StyleSheet, View} from 'react-native';
-import FastImage from 'react-native-fast-image';
+
+import ExpoImage from '@components/expo_image';
+import {urlSafeBase64Encode} from '@utils/security';
 
 type Props = {
     uri: string;
@@ -24,9 +26,10 @@ const style = StyleSheet.create({
 const AttachmentThumbnail = ({uri}: Props) => {
     return (
         <View style={style.container}>
-            <FastImage
+            <ExpoImage
+                id={`attachment-thumbnail-${urlSafeBase64Encode(uri)}`}
                 source={{uri}}
-                resizeMode='contain'
+                contentFit='contain'
                 style={style.image}
             />
         </View>

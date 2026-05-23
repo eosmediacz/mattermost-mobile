@@ -2,18 +2,19 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {type StyleProp, StyleSheet, type ViewStyle, DeviceEventEmitter} from 'react-native';
+import {type StyleProp, StyleSheet, type ViewStyle, DeviceEventEmitter, type FlatList, type GestureResponderEvent} from 'react-native';
 import {type Edge, SafeAreaView} from 'react-native-safe-area-context';
 
-import {markChannelAsRead} from '@actions/remote/channel';
+import {markChannelAsRead, unsetActiveChannelOnServer} from '@actions/remote/channel';
 import {fetchPosts, fetchPostsBefore} from '@actions/remote/post';
 import {PER_PAGE_DEFAULT} from '@client/rest/constants';
 import PostList from '@components/post_list';
 import {Events, Screens} from '@constants';
 import {useServerUrl} from '@context/server';
-import {debounce} from '@helpers/api/general';
 import {useAppState, useIsTablet} from '@hooks/device';
+import useDidMount from '@hooks/did_mount';
 import useDidUpdate from '@hooks/did_update';
+import {useDebounce} from '@hooks/utils';
 import EphemeralStore from '@store/ephemeral_store';
 
 import Intro from './intro';
@@ -26,12 +27,14 @@ type Props = {
     contentContainerStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
     isCRTEnabled: boolean;
     lastViewedAt: number;
-    nativeID: string;
     posts: PostModel[];
     shouldShowJoinLeaveMessages: boolean;
+    listRef: React.RefObject<FlatList<string | PostModel>>;
+    onTouchMove?: (event: GestureResponderEvent) => void;
+    onTouchEnd?: () => void;
 }
 
-const edges: Edge[] = ['bottom'];
+const edges: Edge[] = [];
 const styles = StyleSheet.create({
     flex: {flex: 1},
     containerStyle: {paddingTop: 12},
@@ -39,7 +42,8 @@ const styles = StyleSheet.create({
 
 const ChannelPostList = ({
     channelId, contentContainerStyle, isCRTEnabled,
-    lastViewedAt, nativeID, posts, shouldShowJoinLeaveMessages,
+    lastViewedAt, posts, shouldShowJoinLeaveMessages,
+    listRef, onTouchMove, onTouchEnd,
 }: Props) => {
     const appState = useAppState();
     const isTablet = useIsTablet();
@@ -49,7 +53,7 @@ const ChannelPostList = ({
     const [fetchingPosts, setFetchingPosts] = useState(EphemeralStore.isLoadingMessagesForChannel(serverUrl, channelId));
     const oldPostsCount = useRef<number>(posts.length);
 
-    const onEndReached = useCallback(debounce(async () => {
+    const onEndReached = useDebounce(useCallback(async () => {
         if (!fetchingPosts && canLoadPostsBefore.current && posts.length) {
             const lastPost = posts[posts.length - 1];
             const result = await fetchPostsBefore(serverUrl, channelId, lastPost?.id || '');
@@ -58,7 +62,7 @@ const ChannelPostList = ({
                 canLoadPostsBefore.current = (result.posts?.length ?? 0) > 0;
             }
         }
-    }, 500), [fetchingPosts, serverUrl, channelId, posts]);
+    }, [fetchingPosts, serverUrl, channelId, posts]), 500);
 
     useDidUpdate(() => {
         setFetchingPosts(EphemeralStore.isLoadingMessagesForChannel(serverUrl, channelId));
@@ -82,14 +86,32 @@ const ChannelPostList = ({
             canLoadPost.current = false;
             fetchPosts(serverUrl, channelId);
         }
+
+        // We only want to run this when the number of posts changes or we stop fetching posts
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fetchingPosts, posts]);
 
-    useEffect(() => {
+    useDidUpdate(() => {
         if (oldPostsCount.current < posts.length && appState === 'active') {
             oldPostsCount.current = posts.length;
             markChannelAsRead(serverUrl, channelId, true);
         }
-    }, [isCRTEnabled, posts, channelId, serverUrl, appState === 'active']);
+    }, [posts.length]);
+
+    useDidUpdate(() => {
+        if (appState === 'active') {
+            markChannelAsRead(serverUrl, channelId, true);
+        }
+        if (appState !== 'active') {
+            unsetActiveChannelOnServer(serverUrl);
+        }
+    }, [appState === 'active']);
+
+    useDidMount(() => {
+        return () => {
+            unsetActiveChannelOnServer(serverUrl);
+        };
+    });
 
     const intro = (<Intro channelId={channelId}/>);
 
@@ -101,12 +123,14 @@ const ChannelPostList = ({
             footer={intro}
             lastViewedAt={lastViewedAt}
             location={Screens.CHANNEL}
-            nativeID={nativeID}
             onEndReached={onEndReached}
             posts={posts}
             shouldShowJoinLeaveMessages={shouldShowJoinLeaveMessages}
             showMoreMessages={true}
             testID='channel.post_list'
+            listRef={listRef}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
         />
     );
 

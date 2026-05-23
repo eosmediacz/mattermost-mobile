@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {useIntl} from 'react-intl';
 import {View} from 'react-native';
 
@@ -13,7 +13,9 @@ import TeamList from '@components/team_list';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
+import useDidMount from '@hooks/did_mount';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import SecurityManager from '@managers/security_manager';
 import {dismissModal} from '@screens/navigation';
 import {logDebug} from '@utils/log';
 import {alertTeamAddError} from '@utils/navigation';
@@ -104,12 +106,12 @@ export default function JoinTeam({
         }
     }, [serverUrl, componentId, intl]);
 
-    useEffect(() => {
+    useDidMount(() => {
         loadTeams();
         return () => {
             mounted.current = false;
         };
-    }, []);
+    });
 
     const onClosePressed = useCallback(() => {
         return dismissModal({componentId});
@@ -154,7 +156,10 @@ export default function JoinTeam({
     }
 
     return (
-        <View style={styles.container}>
+        <View
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
+            style={styles.container}
+        >
             {body}
         </View>
     );

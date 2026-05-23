@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useEffect, useMemo} from 'react';
+import React, {useMemo} from 'react';
 import {defineMessages} from 'react-intl';
 import {Text, View, type TextStyle} from 'react-native';
 
@@ -10,6 +10,7 @@ import FormattedText from '@components/formatted_text';
 import {BotTag} from '@components/tag';
 import {General, NotificationLevel} from '@constants';
 import {useServerUrl} from '@context/server';
+import useDidMount from '@hooks/did_mount';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 import {typography} from '@utils/typography';
 import {getUserIdFromChannelName} from '@utils/user';
@@ -34,13 +35,10 @@ type Props = {
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
-    botContainer: {
-        alignSelf: 'flex-end',
-        bottom: 7.5,
-        height: 20,
-        marginBottom: 0,
-        marginLeft: 4,
-        paddingVertical: 0,
+    displayNameContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
     },
     botText: {
         fontSize: 14,
@@ -127,12 +125,12 @@ const DirectChannel = ({
     const serverUrl = useServerUrl();
     const styles = getStyleSheet(theme);
 
-    useEffect(() => {
+    useDidMount(() => {
         const channelMembers = members?.filter((m) => m.userId !== currentUserId);
         if (!channelMembers?.length) {
             fetchProfilesInChannel(serverUrl, channel.id, currentUserId, undefined, false);
         }
-    }, []);
+    });
 
     const message = useMemo(() => {
         if (channel.type === General.DM_CHANNEL) {
@@ -164,7 +162,7 @@ const DirectChannel = ({
                 {getGMIntroMessageSpecificPart(userNotifyProps, channelNotifyProps, styles.boldText)}
             </Text>
         );
-    }, [channel.displayName, theme, channelNotifyProps, userNotifyProps]);
+    }, [channel.type, channel.displayName, hasGMasDMFeature, styles.message, styles.boldText, userNotifyProps, channelNotifyProps]);
 
     const profiles = useMemo(() => {
         if (channel.type === General.DM_CHANNEL) {
@@ -195,14 +193,14 @@ const DirectChannel = ({
                 userIds={channelMembers.map((cm) => cm.userId)}
             />
         );
-    }, [members, theme]);
+    }, [channel.id, channel.name, channel.type, currentUserId, members, theme]);
 
     return (
         <View style={styles.container}>
             <View style={styles.profilesContainer}>
                 {profiles}
             </View>
-            <View style={{flexDirection: 'row'}}>
+            <View style={styles.displayNameContainer}>
                 <Text
                     style={[styles.title, channel.type === General.GM_CHANNEL ? styles.titleGroup : undefined]}
                     testID='channel_post_list.intro.display_name'
@@ -210,10 +208,7 @@ const DirectChannel = ({
                     {channel.displayName}
                 </Text>
                 {isBot &&
-                <BotTag
-                    style={styles.botContainer}
-                    textStyle={styles.botText}
-                />
+                    <BotTag size={'m'}/>
                 }
             </View>
             {message}

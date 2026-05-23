@@ -1,22 +1,23 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useMemo, useState} from 'react';
+import {LinearGradient, type LinearGradientProps} from 'expo-linear-gradient';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {StyleSheet, useWindowDimensions, View} from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 
-import {buildFilePreviewUrl, buildFileThumbnailUrl} from '@actions/remote/file';
+import {buildFilePreviewUrl, buildFileUrl} from '@actions/remote/file';
 import CompassIcon from '@components/compass_icon';
 import ProgressiveImage from '@components/progressive_image';
 import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
+import EphemeralStore from '@store/ephemeral_store';
 import {isGif as isGifImage} from '@utils/file';
 import {calculateDimensions} from '@utils/images';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 import FileIcon from './file_icon';
 
-import type {ResizeMode} from 'react-native-fast-image';
+import type {ImageContentFit} from 'expo-image';
 
 type ImageFileProps = {
     backgroundColor?: string;
@@ -24,15 +25,15 @@ type ImageFileProps = {
     forwardRef?: React.RefObject<unknown>;
     inViewPort?: boolean;
     isSingleImage?: boolean;
-    resizeMode?: ResizeMode;
+    contentFit?: ImageContentFit;
     wrapperWidth?: number;
 }
 
 const SMALL_IMAGE_MAX_HEIGHT = 48;
 const SMALL_IMAGE_MAX_WIDTH = 48;
-const GRADIENT_COLORS = ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, .32)'];
+const GRADIENT_COLORS: LinearGradientProps['colors'] = ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, .32)'];
 const GRADIENT_END = {x: 1, y: 1};
-const GRADIENT_LOCATIONS = [0.5, 1];
+const GRADIENT_LOCATIONS: LinearGradientProps['locations'] = [0.5, 1];
 const GRADIENT_START = {x: 0.5, y: 0.5};
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
@@ -67,7 +68,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 
 const ImageFile = ({
     backgroundColor, file, forwardRef, inViewPort, isSingleImage,
-    resizeMode = 'cover', wrapperWidth,
+    contentFit = 'cover', wrapperWidth,
 }: ImageFileProps) => {
     const dimensions = useWindowDimensions();
     const theme = useTheme();
@@ -90,23 +91,39 @@ const ImageFile = ({
         setFailed(true);
     }, []);
 
-    const imageProps = () => {
+    // Check if file is rejected and show file icon instead
+    useEffect(() => {
+        const isRejected = file.id && EphemeralStore.isFileRejected(file.id);
+        if (isRejected) {
+            setFailed(true);
+        }
+    }, [file.id]);
+
+    const imageProps = useMemo(() => {
         const props: ProgressiveImageProps = {};
+
+        // Check if file is rejected by plugin before attempting to load
+        const isRejected = file.id && EphemeralStore.isFileRejected(file.id);
 
         if (file.localPath) {
             const prefix = file.localPath.startsWith('file://') ? '' : 'file://';
             props.defaultSource = {uri: prefix + file.localPath};
-        } else if (file.id) {
-            if (file.mini_preview && file.mime_type) {
-                props.thumbnailUri = `data:${file.mime_type};base64,${file.mini_preview}`;
+        } else if (file.id && !isRejected) {
+            // Don't set thumbnailUri - show neutral placeholder instead of blurred preview
+            // This prevents the visual blink when a file is rejected by a plugin
+            // (the blurred preview would show briefly before being replaced by file card)
+            //
+            // GIFs use the original file URL because the server preview is a static JPEG.
+            if (isGif || !file.has_preview_image) {
+                props.imageUri = buildFileUrl(serverUrl, file.id, file.update_at);
             } else {
-                props.thumbnailUri = buildFileThumbnailUrl(serverUrl, file.id);
+                props.imageUri = buildFilePreviewUrl(serverUrl, file.id);
             }
-            props.imageUri = buildFilePreviewUrl(serverUrl, file.id);
             props.inViewPort = inViewPort;
         }
+
         return props;
-    };
+    }, [file, inViewPort, isGif, serverUrl]);
 
     let imageDimensions = getImageDimensions();
     if (isSingleImage && (!imageDimensions || (imageDimensions?.height === 0 && imageDimensions?.width === 0))) {
@@ -120,8 +137,9 @@ const ImageFile = ({
             style={[isSingleImage ? null : style.imagePreview, imageDimensions]}
             tintDefaultSource={!file.localPath && !failed}
             onError={handleError}
-            resizeMode={resizeMode}
-            {...imageProps()}
+            contentFit={contentFit}
+            theme={theme}
+            {...imageProps}
         />
     );
 

@@ -10,10 +10,11 @@ import {toMilliseconds} from '@utils/datetime';
 type CallDurationProps = {
     style: StyleProp<TextStyle>;
     value: number;
+    truncateWhenLong?: boolean;
     updateIntervalInSeconds?: number;
 }
 
-const CallDuration = ({value, style, updateIntervalInSeconds}: CallDurationProps) => {
+const CallDuration = ({value, style, truncateWhenLong, updateIntervalInSeconds}: CallDurationProps) => {
     const getCallDuration = () => {
         const now = moment();
         const startTime = moment(value);
@@ -27,6 +28,9 @@ const CallDuration = ({value, style, updateIntervalInSeconds}: CallDurationProps
         const minutes = totalMinutes % 60;
         const hours = Math.floor(totalMinutes / 60);
 
+        if (hours > 0 && truncateWhenLong) {
+            return `${hours}:${minutes < 10 ? '0' + minutes : minutes}`;
+        }
         if (hours > 0) {
             return `${hours}:${minutes < 10 ? '0' + minutes : minutes}:${seconds < 10 ? '0' + seconds : seconds}`;
         }
@@ -47,6 +51,10 @@ const CallDuration = ({value, style, updateIntervalInSeconds}: CallDurationProps
         return function cleanup() {
             return null;
         };
+
+    // We don't care about `getCallDuration` changes as long as
+    // it is up to date when the effect runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [updateIntervalInSeconds]);
 
     return (

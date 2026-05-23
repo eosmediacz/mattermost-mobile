@@ -3,13 +3,14 @@
 
 import moment from 'moment';
 import mtz from 'moment-timezone';
-import React, {useEffect, useMemo} from 'react';
+import React, {useMemo} from 'react';
 import {defineMessages, useIntl} from 'react-intl';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 import {fetchTeamAndChannelMembership} from '@actions/remote/user';
 import {Screens} from '@constants';
 import {useServerUrl} from '@context/server';
+import useDidMount from '@hooks/did_mount';
 import {getLocaleFromLanguage} from '@i18n';
 import BottomSheet from '@screens/bottom_sheet';
 import {bottomSheetSnapPoint} from '@utils/helpers';
@@ -20,6 +21,7 @@ import UserProfileOptions, {type OptionsType} from './options';
 import UserProfileTitle, {HEADER_TEXT_HEIGHT} from './title';
 import UserInfo from './user_info';
 
+import type {CustomAttributeSet} from '@typings/api/custom_profile_attributes';
 import type UserModel from '@typings/database/models/servers/user';
 import type {AvailableScreens} from '@typings/screens/navigation';
 
@@ -33,19 +35,21 @@ type Props = {
     isChannelAdmin: boolean;
     canManageAndRemoveMembers?: boolean;
     isCustomStatusEnabled: boolean;
-    isDirectMessage: boolean;
+    isDirectMessageWithUser: boolean;
     isDefaultChannel: boolean;
     isMilitaryTime: boolean;
     isSystemAdmin: boolean;
     isTeamAdmin: boolean;
     manageMode?: boolean;
-    location: AvailableScreens;
+    location?: AvailableScreens;
     teamId: string;
     teammateDisplayName: string;
     user: UserModel;
     userIconOverride?: string;
     usernameOverride?: string;
     hideGuestTags: boolean;
+    enableCustomAttributes: boolean;
+    customAttributesSet?: CustomAttributeSet;
 }
 
 const TITLE_HEIGHT = 118;
@@ -63,6 +67,22 @@ const messages = defineMessages({
 });
 const channelContextScreens: AvailableScreens[] = [Screens.CHANNEL, Screens.THREAD];
 
+type ShouldShowUserProfileOptionsProps = {
+    channelContext: boolean;
+    isDirectMessageWithUser: boolean;
+    manageMode: boolean;
+    override: boolean;
+};
+
+export function shouldShowUserProfileOptions({
+    channelContext,
+    isDirectMessageWithUser,
+    manageMode,
+    override,
+}: ShouldShowUserProfileOptionsProps) {
+    return (!isDirectMessageWithUser || !channelContext) && !override && !manageMode;
+}
+
 const UserProfile = ({
     canChangeMemberRoles,
     canManageAndRemoveMembers,
@@ -74,7 +94,7 @@ const UserProfile = ({
     isChannelAdmin,
     isCustomStatusEnabled,
     isDefaultChannel,
-    isDirectMessage,
+    isDirectMessageWithUser,
     isMilitaryTime,
     isSystemAdmin,
     isTeamAdmin,
@@ -86,13 +106,15 @@ const UserProfile = ({
     userIconOverride,
     usernameOverride,
     hideGuestTags,
+    enableCustomAttributes,
+    customAttributesSet,
 }: Props) => {
     const {formatMessage, locale} = useIntl();
     const serverUrl = useServerUrl();
-    const {bottom} = useSafeAreaInsets();
-    const channelContext = channelContextScreens.includes(location);
+    const channelContext = location ? channelContextScreens.includes(location) : false;
     const showOptions: OptionsType = channelContext && !user.isBot ? 'all' : 'message';
     const override = Boolean(userIconOverride || usernameOverride);
+    const {bottom} = useSafeAreaInsets();
     const timezone = getUserTimezone(user);
     const customStatus = getUserCustomStatus(user);
     let localTime: string|undefined;
@@ -108,7 +130,12 @@ const UserProfile = ({
     }
 
     const showCustomStatus = isCustomStatusEnabled && Boolean(customStatus) && !user.isBot && !isCustomStatusExpired(user);
-    const showUserProfileOptions = (!isDirectMessage || !channelContext) && !override && !manageMode;
+    const showUserProfileOptions = shouldShowUserProfileOptions({
+        channelContext,
+        isDirectMessageWithUser,
+        manageMode,
+        override,
+    });
     const showNickname = Boolean(user.nickname) && !override && !user.isBot && !manageMode;
     const showPosition = Boolean(user.position) && !override && !user.isBot && !manageMode;
     const showLocalTime = Boolean(localTime) && !override && !user.isBot && !manageMode;
@@ -145,22 +172,32 @@ const UserProfile = ({
             }
         }
 
-        const extraHeight = manageMode ? 0 : EXTRA_HEIGHT;
+        const extraHeight = manageMode ? 0 : (EXTRA_HEIGHT - bottom);
 
         return [
             1,
-            bottomSheetSnapPoint(optionsCount, LABEL_HEIGHT, bottom) + title + extraHeight,
+            bottomSheetSnapPoint(optionsCount, LABEL_HEIGHT) + title + extraHeight,
+            '90%',
         ];
     }, [
-        showUserProfileOptions, showCustomStatus, showNickname,
-        showPosition, showLocalTime, bottom,
+        headerText,
+        showUserProfileOptions,
+        showCustomStatus,
+        showNickname,
+        showPosition,
+        showLocalTime,
+        manageMode,
+        bottom,
+        showOptions,
+        canChangeMemberRoles,
+        canManageAndRemoveMembers,
     ]);
 
-    useEffect(() => {
+    useDidMount(() => {
         if (currentUserId !== user.id) {
             fetchTeamAndChannelMembership(serverUrl, user.id, teamId, channelId);
         }
-    }, []);
+    });
 
     const renderContent = () => {
         return (
@@ -187,7 +224,7 @@ const UserProfile = ({
                         userId={user.id}
                     />
                 }
-                {!manageMode &&
+                {!manageMode && (
                     <UserInfo
                         localTime={localTime}
                         showCustomStatus={showCustomStatus}
@@ -195,8 +232,10 @@ const UserProfile = ({
                         showPosition={showPosition}
                         showLocalTime={showLocalTime}
                         user={user}
+                        enableCustomAttributes={enableCustomAttributes}
+                        customAttributesSet={customAttributesSet}
                     />
-                }
+                )}
                 {manageMode && channelId && (canManageAndRemoveMembers || canChangeMemberRoles) &&
                     <ManageUserOptions
                         canChangeMemberRoles={canChangeMemberRoles}

@@ -2,12 +2,12 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {useIntl} from 'react-intl';
-import {Alert, Text, View} from 'react-native';
-import FastImage from 'react-native-fast-image';
+import {Text, View} from 'react-native';
 
+import ExpoImage from '@components/expo_image';
+import {useExternalLinkHandler} from '@hooks/use_external_link_handler';
+import {urlSafeBase64Encode} from '@utils/security';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
-import {tryOpenURL} from '@utils/url';
 
 type Props = {
     icon?: string;
@@ -36,32 +36,14 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 });
 
 const AttachmentAuthor = ({icon, link, name, theme}: Props) => {
-    const intl = useIntl();
     const style = getStyleSheet(theme);
-
-    const openLink = () => {
-        if (link) {
-            const onError = () => {
-                Alert.alert(
-                    intl.formatMessage({
-                        id: 'mobile.link.error.title',
-                        defaultMessage: 'Error',
-                    }),
-                    intl.formatMessage({
-                        id: 'mobile.link.error.text',
-                        defaultMessage: 'Unable to open the link.',
-                    }),
-                );
-            };
-
-            tryOpenURL(link, onError);
-        }
-    };
+    const openLink = useExternalLinkHandler(link);
 
     return (
         <View style={style.container}>
             {Boolean(icon) &&
-            <FastImage
+            <ExpoImage
+                id={`attachment-author-icon-${urlSafeBase64Encode(icon!)}`}
                 source={{uri: icon}}
                 key='author_icon'
                 style={style.icon}

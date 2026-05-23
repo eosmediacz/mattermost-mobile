@@ -3,7 +3,7 @@
 
 import React, {useCallback, useEffect, useMemo, useReducer, useState} from 'react';
 import {useIntl} from 'react-intl';
-import {Keyboard} from 'react-native';
+import {Keyboard, StyleSheet, View} from 'react-native';
 
 import {createChannel, patchChannel as handlePatchChannel, switchToChannelById} from '@actions/remote/channel';
 import CompassIcon from '@components/compass_icon';
@@ -13,6 +13,7 @@ import {useServerUrl} from '@context/server';
 import {useTheme} from '@context/theme';
 import useAndroidHardwareBackHandler from '@hooks/android_back_handler';
 import useNavButtonPressed from '@hooks/navigation_button_pressed';
+import SecurityManager from '@managers/security_manager';
 import {buildNavigationButton, dismissModal, popTopScreen, setButtons} from '@screens/navigation';
 import {validateDisplayName} from '@utils/channel';
 
@@ -67,6 +68,12 @@ const isDirect = (channel?: ChannelModel): boolean => {
 const makeCloseButton = (icon: ImageResource) => {
     return buildNavigationButton(CLOSE_BUTTON_ID, 'close.create_or_edit_channel.button', icon);
 };
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+    },
+});
 
 const CreateOrEditChannel = ({
     componentId,
@@ -126,7 +133,7 @@ const CreateOrEditChannel = ({
         base.showAsAction = 'always';
         base.color = theme.sidebarHeaderTextColor;
         return base;
-    }, [editing, theme.sidebarHeaderTextColor, intl, canSave]);
+    }, [editing, formatMessage, canSave, theme.sidebarHeaderTextColor]);
 
     useEffect(() => {
         setButtons(componentId, {
@@ -141,7 +148,7 @@ const CreateOrEditChannel = ({
                 leftButtons: [makeCloseButton(icon)],
             });
         }
-    }, [theme, isModal]);
+    }, [theme, isModal, componentId]);
 
     useEffect(() => {
         setCanSave(
@@ -152,7 +159,7 @@ const CreateOrEditChannel = ({
                 type !== channel.type
             ),
         );
-    }, [channel, displayName, purpose, header, type]);
+    }, [channel, displayName, purpose, header, type, channelInfo]);
 
     const isValidDisplayName = useCallback((): boolean => {
         if (isDirect(channel)) {
@@ -168,7 +175,7 @@ const CreateOrEditChannel = ({
             return false;
         }
         return true;
-    }, [channel, displayName]);
+    }, [channel, displayName, intl]);
 
     const onCreateChannel = useCallback(async () => {
         dispatch({type: RequestActions.START});
@@ -190,7 +197,7 @@ const CreateOrEditChannel = ({
         dispatch({type: RequestActions.COMPLETE});
         close(componentId, isModal);
         switchToChannelById(serverUrl, createdChannel.channel!.id, createdChannel.channel!.team_id);
-    }, [serverUrl, type, displayName, header, isModal, purpose, isValidDisplayName]);
+    }, [isValidDisplayName, serverUrl, displayName, purpose, header, type, componentId, isModal]);
 
     const onUpdateChannel = useCallback(async () => {
         if (!channel) {
@@ -221,11 +228,11 @@ const CreateOrEditChannel = ({
         }
         dispatch({type: RequestActions.COMPLETE});
         close(componentId, isModal);
-    }, [channel?.id, channel?.type, displayName, header, isModal, purpose, isValidDisplayName]);
+    }, [channel, isValidDisplayName, header, displayName, purpose, serverUrl, componentId, isModal]);
 
     const handleClose = useCallback(() => {
         close(componentId, isModal);
-    }, [isModal]);
+    }, [componentId, isModal]);
 
     useNavButtonPressed(CLOSE_BUTTON_ID, componentId, handleClose, [handleClose]);
     useNavButtonPressed(CREATE_BUTTON_ID, componentId, onCreateChannel, [onCreateChannel]);
@@ -233,21 +240,26 @@ const CreateOrEditChannel = ({
     useAndroidHardwareBackHandler(componentId, handleClose);
 
     return (
-        <ChannelInfoForm
-            error={appState.error}
-            saving={appState.saving}
-            channelType={channel?.type}
-            editing={editing}
-            onTypeChange={setType}
-            type={type}
-            displayName={displayName}
-            onDisplayNameChange={setDisplayName}
-            header={header}
-            headerOnly={headerOnly}
-            onHeaderChange={setHeader}
-            purpose={purpose}
-            onPurposeChange={setPurpose}
-        />
+        <View
+            nativeID={SecurityManager.getShieldScreenId(componentId)}
+            style={styles.container}
+        >
+            <ChannelInfoForm
+                error={appState.error}
+                saving={appState.saving}
+                channelType={channel?.type}
+                editing={editing}
+                onTypeChange={setType}
+                type={type}
+                displayName={displayName}
+                onDisplayNameChange={setDisplayName}
+                header={header}
+                headerOnly={headerOnly}
+                onHeaderChange={setHeader}
+                purpose={purpose}
+                onPurposeChange={setPurpose}
+            />
+        </View>
     );
 };
 

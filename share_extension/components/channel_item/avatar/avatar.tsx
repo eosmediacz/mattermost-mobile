@@ -3,13 +3,15 @@
 
 import React from 'react';
 import {View} from 'react-native';
-import FastImage from 'react-native-fast-image';
 
+import {buildAbsoluteUrl} from '@actions/remote/file';
+import {buildProfileImageUrlFromUser} from '@actions/remote/user';
 import CompassIcon from '@components/compass_icon';
+import Image from '@components/expo_image';
 import {ACCOUNT_OUTLINE_IMAGE} from '@constants/profile';
-import NetworkManager from '@managers/network_manager';
 import {useShareExtensionServerUrl} from '@share/state';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
+import {getLastPictureUpdate} from '@utils/user';
 
 import type UserModel from '@typings/database/models/servers/user';
 
@@ -34,7 +36,6 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => ({
 const Avatar = ({author, theme}: Props) => {
     const serverUrl = useShareExtensionServerUrl();
     const style = getStyleSheet(theme);
-    const isBot = author?.isBot || false;
     let pictureUrl = '';
 
     if (author?.deleteAt) {
@@ -48,26 +49,15 @@ const Avatar = ({author, theme}: Props) => {
     }
 
     if (author && serverUrl) {
-        try {
-            const client = NetworkManager.getClient(serverUrl);
-            let lastPictureUpdate = 0;
-            if (isBot) {
-                lastPictureUpdate = author?.props?.bot_last_icon_update || 0;
-            } else {
-                lastPictureUpdate = author?.lastPictureUpdate || 0;
-            }
-
-            pictureUrl = client.getProfilePictureUrl(author.id, lastPictureUpdate);
-        } catch {
-            // handle below that the client is not set
-        }
+        pictureUrl = buildProfileImageUrlFromUser(serverUrl, author);
     }
 
     let icon;
-    if (pictureUrl) {
-        const imgSource = {uri: `${serverUrl}${pictureUrl}`};
+    if (author && pictureUrl && serverUrl) {
+        const imgSource = {uri: buildAbsoluteUrl(serverUrl, pictureUrl)};
         icon = (
-            <FastImage
+            <Image
+                id={`user-${author.id}-${getLastPictureUpdate(author)}`}
                 key={pictureUrl}
                 style={style.image}
                 source={imgSource}

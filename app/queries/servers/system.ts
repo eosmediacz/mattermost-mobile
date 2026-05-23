@@ -1,14 +1,18 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+/* eslint-disable max-lines */
+
 import {Database, Q} from '@nozbe/watermelondb';
+import {nativeApplicationVersion, nativeBuildVersion} from 'expo-application';
+import {Platform} from 'react-native';
 import {of as of$, Observable, combineLatest} from 'rxjs';
 import {switchMap, distinctUntilChanged} from 'rxjs/operators';
 
 import {Preferences, License} from '@constants';
 import {MM_TABLES, SYSTEM_IDENTIFIERS} from '@constants/database';
 import {PUSH_PROXY_STATUS_UNKNOWN} from '@constants/push_proxy';
-import {isMinimumServerVersion} from '@utils/helpers';
+import {isMinimumLicenseTier, isMinimumServerVersion, type LicenseTierSku} from '@utils/helpers';
 import {logError} from '@utils/log';
 
 import type ServerDataOperator from '@database/operator/server_data_operator';
@@ -137,17 +141,23 @@ export const getCommonSystemValues = async (serverDatabase: Database) => {
     };
 };
 
-const fromModelToClientConfig = (list: ConfigModel[]) => {
+const fromModelToClientConfig = <T = ClientConfig>(list: ConfigModel[]) => {
     const config: {[key: string]: any} = {};
     list.forEach((v) => {
         config[v.id] = v.value;
     });
-    return config as ClientConfig;
+    return config as T;
 };
 
 export const getConfig = async (database: Database) => {
     const configList = await database.get<ConfigModel>(CONFIG).query().fetch();
     return fromModelToClientConfig(configList);
+};
+
+export const getSecurityConfig = async (database: Database) => {
+    const configList = await database.get<ConfigModel>(CONFIG).query(
+        Q.where('id', Q.oneOf(['MobileEnableBiometrics', 'MobileJailbreakProtection', 'MobilePreventScreenCapture', 'SiteName']))).fetch();
+    return fromModelToClientConfig<SecurityClientConfig>(configList);
 };
 
 export const queryConfigValue = (database: Database, key: keyof ClientConfig) => {
@@ -165,6 +175,15 @@ export const getLastGlobalDataRetentionRun = async (database: Database) => {
         return data?.value || 0;
     } catch {
         return undefined;
+    }
+};
+
+export const getLastBoRPostCleanupRun = async (database: Database) => {
+    try {
+        const data = await database.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.LAST_BOR_POST_CLEANUP_RUN);
+        return data?.value || 0;
+    } catch {
+        return 0;
     }
 };
 
@@ -205,7 +224,7 @@ export const getIsDataRetentionEnabled = async (database: Database) => {
 
 export const observeConfig = (database: Database): Observable<ClientConfig | undefined> => {
     return database.get<ConfigModel>(CONFIG).query().observeWithColumns(['value']).pipe(
-        switchMap((result) => of$(fromModelToClientConfig(result))),
+        switchMap((result) => of$(fromModelToClientConfig<ClientConfig>(result))),
     );
 };
 
@@ -311,7 +330,7 @@ export const observeRecentCustomStatus = (database: Database): Observable<UserCu
     );
 };
 
-export const getWebSocketLastDisconnected = async (serverDatabase: Database) => {
+export const getLastFullSync = async (serverDatabase: Database) => {
     try {
         const websocketLastDisconnected = await serverDatabase.get<SystemModel>(SYSTEM).find(SYSTEM_IDENTIFIERS.WEBSOCKET);
         return (parseInt(websocketLastDisconnected?.value || 0, 10) || 0);
@@ -320,16 +339,17 @@ export const getWebSocketLastDisconnected = async (serverDatabase: Database) => 
     }
 };
 
-export const observeWebsocketLastDisconnected = (database: Database) => {
-    return querySystemValue(database, SYSTEM_IDENTIFIERS.WEBSOCKET).observe().pipe(
-        switchMap((result) => (result.length ? result[0].observe() : of$({value: '0'}))),
-        switchMap((model) => of$(parseInt(model.value || 0, 10) || 0)),
-    );
+export const setLastFullSync = async (operator: ServerDataOperator, value: number, prepareRecordsOnly = false) => {
+    return operator.handleSystem({systems: [{
+        id: SYSTEM_IDENTIFIERS.WEBSOCKET,
+        value,
+    }],
+    prepareRecordsOnly});
 };
 
-export const resetWebSocketLastDisconnected = async (operator: ServerDataOperator, prepareRecordsOnly = false) => {
+export const resetLastFullSync = async (operator: ServerDataOperator, prepareRecordsOnly = false) => {
     const {database} = operator;
-    const lastDisconnectedAt = await getWebSocketLastDisconnected(database);
+    const lastDisconnectedAt = await getLastFullSync(database);
 
     if (lastDisconnectedAt) {
         return operator.handleSystem({systems: [{
@@ -532,28 +552,6 @@ export const observeLastDismissedAnnouncement = (database: Database) => {
     );
 };
 
-export const observeCanUploadFiles = (database: Database) => {
-    const enableFileAttachments = observeConfigBooleanValue(database, 'EnableFileAttachments', true);
-    const enableMobileFileUpload = observeConfigBooleanValue(database, 'EnableMobileFileUpload', true);
-    const license = observeLicense(database);
-
-    return combineLatest([enableFileAttachments, enableMobileFileUpload, license]).pipe(
-        switchMap(([efa, emfu, l]) => of$(
-            efa &&
-                (l?.IsLicensed !== 'true' || l?.Compliance !== 'true' || emfu),
-        )),
-    );
-};
-
-export const observeCanDownloadFiles = (database: Database) => {
-    const enableMobileFileDownload = observeConfigBooleanValue(database, 'EnableMobileFileDownload', true);
-    const license = observeLicense(database);
-
-    return combineLatest([enableMobileFileDownload, license]).pipe(
-        switchMap(([emfd, l]) => of$((l?.IsLicensed !== 'true' || l?.Compliance !== 'true' || emfd))),
-    );
-};
-
 export const observeLastServerVersionCheck = (database: Database) => {
     return querySystemValue(database, SYSTEM_IDENTIFIERS.LAST_SERVER_VERSION_CHECK).observeWithColumns(['value']).pipe(
         switchMap((result) => (result.length ? result[0].observe() : of$({value: 0}))),
@@ -617,3 +615,42 @@ const observeIsSelfHosterStarter = (database: Database) => {
     );
 };
 
+export const observeReportAProblemMetadata = (database: Database) => {
+    const currentUserId = observeCurrentUserId(database);
+    const currentTeamId = observeCurrentTeamId(database);
+    const serverVersion = observeConfigValue(database, 'Version');
+    const buildNumber = observeConfigValue(database, 'BuildNumber');
+
+    return combineLatest([
+        currentUserId,
+        currentTeamId,
+        serverVersion,
+        buildNumber,
+    ]).pipe(
+        switchMap(([userId, teamId, version = 'Unknown', build = 'Unknown']) => of$({
+            currentUserId: userId,
+            currentTeamId: teamId,
+            serverVersion: `${version} (Build ${build})`,
+            appVersion: `${nativeApplicationVersion} (Build ${nativeBuildVersion})`,
+            appPlatform: Platform.OS,
+        })),
+    );
+};
+
+export const observeIsMinimumLicenseTier = (database: Database, shortSku: LicenseTierSku) => {
+    const license = observeLicense(database);
+    const isEnterpriseReady = observeConfigBooleanValue(database, 'BuildEnterpriseReady', false);
+
+    return combineLatest([license, isEnterpriseReady]).pipe(
+        switchMap(([lic, isEnt]) => {
+            if (!shortSku || !isEnt) {
+                return of$(false);
+            }
+
+            const meetsMinimumTier = isMinimumLicenseTier(lic, shortSku);
+
+            return of$(meetsMinimumTier);
+        }),
+        distinctUntilChanged(),
+    );
+};
